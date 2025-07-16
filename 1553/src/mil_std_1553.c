@@ -1,5 +1,6 @@
 #include <signal.h>
 #include <pthread.h>
+
 #include "udp.h"
 #include "mil_std_1553.h"
 
@@ -127,10 +128,11 @@ int transmit_1553(int handle, const char *text, int rt_addr) {
 void* receive_1553_thread(void* arg) {
     struct rt_args *args = (struct rt_args *)arg;
     int handle = args->handle;
-    int rt_addr = args->rt_addr;
+    Config config = args->config;
+    int rt_addr = config.device.rt_addr;
     
     char errstr[255];
-    int status, rtid;
+    int status;
     usint rt, subaddr, direction, wordCount, rt_id;
     usint msgdata[32] = {0};
 
@@ -147,18 +149,13 @@ void* receive_1553_thread(void* arg) {
         goto end;
     }
 
-    RT_Id_Px(rt_addr, RECEIVE, 0x01, &rtid);
-    Assign_RT_Data_Px(handle, rtid, 1);
-    RT_Id_Px(rt_addr, RECEIVE, 0x07, &rtid);
-    Assign_RT_Data_Px(handle, rtid, 2);
-    RT_Id_Px(rt_addr, RECEIVE, 0x09, &rtid);
-    Assign_RT_Data_Px(handle, rtid, 3);
-    RT_Id_Px(rt_addr, RECEIVE, 0x0A, &rtid);
-    Assign_RT_Data_Px(handle, rtid, 4);
-    RT_Id_Px(rt_addr, RECEIVE, 0x0B, &rtid);
-    Assign_RT_Data_Px(handle, rtid, 5);
-    RT_Id_Px(rt_addr, RECEIVE, 0x0F, &rtid);
-    Assign_RT_Data_Px(handle, rtid, 6);
+    int blknum = 1;
+    for (size_t i = 0; i < config.cmds.count; ++i) {
+        int rtid;
+        int sa = config.cmds.messages[i].sub_address;
+        RT_Id_Px(rt_addr, RECEIVE, sa, &rtid);
+        Assign_RT_Data_Px(handle, rtid, blknum++);
+    }
 
     status = Run_RT_Px(handle);
     if (status < 0) {
@@ -174,22 +171,19 @@ void* receive_1553_thread(void* arg) {
             usleep(5000);
             continue;
         }
-        //printf("status: %d\n", status);
 
         Parse_CommandWord_Px(rtcmd.command, &rt, &subaddr, &direction, &wordCount, &rt_id);
-        //printf("Parse_CommandWord_Px: command 0x%02X, rt %d, subaddr %d, direction %d, wordCount %d, rt_id 0x%02X\n", rtcmd.command, rt, subaddr, direction, wordCount, rt_id);
 
-        int blknum = 0;
-        switch (subaddr) {
-            case 0x01: blknum = 1; break;
-            case 0x07: blknum = 2; break;
-            case 0x09: blknum = 3; break;
-            case 0x0A: blknum = 4; break;
-            case 0x0B: blknum = 5; break;
-            case 0x0F: blknum = 6; break;
-            default:
-                printf("Don't support the subaddress: 0x%02X\n", subaddr);
-                continue;
+        blknum = -1;
+        for (size_t i = 0; i < config.cmds.count; ++i) {
+            if (config.cmds.messages[i].sub_address == subaddr) {
+                blknum = i + 1;
+                break;
+            }
+        }
+        if (blknum == -1) {
+            printf("Don't support the subaddress: 0x%02X\n", subaddr);
+            continue;
         }
 
         status = Read_Datablk_Px(handle, blknum, msgdata);

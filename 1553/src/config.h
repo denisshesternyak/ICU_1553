@@ -9,36 +9,32 @@ typedef struct {
 } Device_t;
 
 typedef struct {
-    char source_ip[16];
-    char dest_ip[16];
-    int source_port;
-    int dest_port;
+    char ip[16];
+    int port;
+} NetData_t;
+
+typedef struct {
+    NetData_t source;
+    NetData_t destination;
 } Network_t;
 
 typedef struct {
-    int opcode;
-    char rate_str[8];
-    int rate_value;
-    int is_rate_numeric;
     int sub_address;
+    int op_code;
+    char rate[8];
 } Message_t;
 
 typedef struct {
-    Message_t irst_01_commands;
-    Message_t irst_07_tod_cmd;
-    Message_t irst_09_navigation_data;
-    Message_t irst_11_status_report;
-    Message_t irst_15_bit_report;
-    Message_t icu_status;
-    Message_t icu_status_ack;
-} CMD_IRST_t;
+    size_t count;
+    Message_t *messages;
+} CommandList_t;
 
 typedef struct {
     Device_t device;
     Network_t network;
-    CMD_IRST_t cmds;
+    CommandList_t cmds;
 } Config;
 
-void load_config(const char* filename, Config* config);
+int command_handler(void* user, const char* section, const char* name, const char* value);
 
 #endif //__CONFIG_H

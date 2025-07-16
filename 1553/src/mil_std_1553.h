@@ -5,11 +5,13 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+
 #include "galahad_px.h"
+#include "config.h"
 
 struct rt_args {
     int handle;
-    int rt_addr;
+    Config config;
 };
 
 void handle_sigint(int sig);
