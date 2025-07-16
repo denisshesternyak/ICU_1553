@@ -1,0 +1,4 @@
+.vscode/
+/1553/src/build/
+
+*.o
