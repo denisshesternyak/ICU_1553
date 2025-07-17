@@ -3,7 +3,7 @@ LDFLAGS := -L ../../lib -fPIC
 CFLAGS := -fPIC
 CPPFLAGS := -fPIC
 #CFLAGS := -H #Show header includes
-OBJS +=  icu_1553.o config.o mil_std_1553.o udp.o ini.o
+OBJS +=  icu_1553.o config.o mil_std_1553.o client.o ini.o
 PROGS +=  icu_1553
 
 BUILD_DIR = build

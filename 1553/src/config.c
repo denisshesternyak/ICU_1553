@@ -4,6 +4,12 @@
 
 #include "config.h"
 
+volatile sig_atomic_t stop_flag = 0;
+
+void handle_sigint(int sig) {
+    stop_flag = 1;
+}
+
 int command_handler(void* user, const char* section, const char* name, const char* value) {
     Config* config = (Config*)user;
     Message_t* current = NULL;

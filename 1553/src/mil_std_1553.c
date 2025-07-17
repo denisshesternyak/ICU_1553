@@ -1,25 +1,21 @@
-#include <signal.h>
 #include <pthread.h>
 
-#include "udp.h"
+#include "client.h"
 #include "mil_std_1553.h"
 
-volatile sig_atomic_t stop_flag = 0;
+static int handle;
+pthread_t recv_1553_thread;
 
-void handle_sigint(int sig) {
-    stop_flag = 1;
-}
-
-int release_module_1553(int handle) {
+int release_module_1553() {
     Stop_Px(handle);
     Release_Module_Px(handle);
     printf("\nRelease module\n");
     return 0;
 }
 
-int init_module_1553(int devnum, int modnum, int *handle) {
-    usint device = (usint)devnum;
-    usint module = (usint)modnum;
+int init_module_1553(Config *config) {
+    usint device = (usint)config->device.device_number;
+    usint module = (usint)config->device.module_number;
     char errstr[255];
     int status;
 
@@ -29,9 +25,9 @@ int init_module_1553(int devnum, int modnum, int *handle) {
         printf("Init_Module_Px Failure. %s\n", errstr);
         return status;
     }
-    *handle = status;
+    handle = status;
 
-    status = Get_Board_Status_Px(*handle);
+    status = Get_Board_Status_Px(handle);
     printf("Board status is ");
     if (status & SELF_TEST_OK)
         printf("SELF TEST OK  ");
@@ -44,10 +40,16 @@ int init_module_1553(int devnum, int modnum, int *handle) {
     else
         printf("BOARD NOT READY\n");
 
+    if (pthread_create(&recv_1553_thread, NULL, receive_1553_thread, config) != 0) {
+        perror("Failed to create receive 1553 thread");
+        release_module_1553(handle);
+        return 1;
+    }
+
     return 0;
 }
 
-int transmit_1553(int handle, const char *text, int rt_addr) {
+int transmit_1553(const char *text, int rt_addr) {
     char errstr[255];
     int status, frameid;
     short int id1;
@@ -126,10 +128,8 @@ int transmit_1553(int handle, const char *text, int rt_addr) {
 }
 
 void* receive_1553_thread(void* arg) {
-    struct rt_args *args = (struct rt_args *)arg;
-    int handle = args->handle;
-    Config config = args->config;
-    int rt_addr = config.device.rt_addr;
+    Config *config = (Config*)arg;
+    int rt_addr = config->device.rt_addr;
     
     char errstr[255];
     int status;
@@ -150,9 +150,9 @@ void* receive_1553_thread(void* arg) {
     }
 
     int blknum = 1;
-    for (size_t i = 0; i < config.cmds.count; ++i) {
+    for (size_t i = 0; i < config->cmds.count; ++i) {
         int rtid;
-        int sa = config.cmds.messages[i].sub_address;
+        int sa = config->cmds.messages[i].sub_address;
         RT_Id_Px(rt_addr, RECEIVE, sa, &rtid);
         Assign_RT_Data_Px(handle, rtid, blknum++);
     }
@@ -175,8 +175,8 @@ void* receive_1553_thread(void* arg) {
         Parse_CommandWord_Px(rtcmd.command, &rt, &subaddr, &direction, &wordCount, &rt_id);
 
         blknum = -1;
-        for (size_t i = 0; i < config.cmds.count; ++i) {
-            if (config.cmds.messages[i].sub_address == subaddr) {
+        for (size_t i = 0; i < config->cmds.count; ++i) {
+            if (config->cmds.messages[i].sub_address == subaddr) {
                 blknum = i + 1;
                 break;
             }

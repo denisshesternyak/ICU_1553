@@ -1,5 +1,7 @@
-#ifndef __CONFIG_H
-#define __CONFIG_H
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#include <signal.h>
 
 typedef struct {
     int device_number;
@@ -35,6 +37,8 @@ typedef struct {
     CommandList_t cmds;
 } Config;
 
+extern volatile sig_atomic_t stop_flag;
+
 int command_handler(void* user, const char* section, const char* name, const char* value);
 
-#endif //__CONFIG_H
+#endif //CONFIG_H

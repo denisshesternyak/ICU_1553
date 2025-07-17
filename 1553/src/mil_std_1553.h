@@ -9,21 +9,18 @@
 #include "galahad_px.h"
 #include "config.h"
 
-struct rt_args {
-    int handle;
-    Config config;
-};
+extern pthread_t recv_1553_thread;
 
 void handle_sigint(int sig);
 
 // Initialize the 1553 module
-int init_module_1553(int devnum, int modnum, int *handle);
+int init_module_1553(Config *config);
 
 // Release the 1553 module
-int release_module_1553(int handle);
+int release_module_1553();
 
 // Transmit data as Bus Controller (BC)
-int transmit_1553(int handle, const char *text, int rt_addr);
+int transmit_1553(const char *text, int rt_addr);
 
 // Receive data as Remote Terminal (RT)
 void* receive_1553_thread(void* arg);
