@@ -9,7 +9,7 @@ pthread_t recv_1553_thread;
 int release_module_1553() {
     Stop_Px(handle);
     Release_Module_Px(handle);
-    printf("\nRelease module\n");
+    printf("\nRelease MODULE_1553\n");
     return 0;
 }
 
@@ -26,9 +26,10 @@ int init_module_1553(Config *config) {
         return status;
     }
     handle = status;
+    printf("Init MODULE_1553 success!\n");
 
     status = Get_Board_Status_Px(handle);
-    printf("Board status is ");
+    printf("  Board status is ");
     if (status & SELF_TEST_OK)
         printf("SELF TEST OK  ");
     if (status & RAM_OK)
@@ -128,6 +129,9 @@ int transmit_1553(const char *text, int rt_addr) {
 }
 
 void* receive_1553_thread(void* arg) {
+    printf("  Running the receive MODULE_1553 thread...\n");
+    printf("\n%-6s %-14s %-6s %-4s %-10s %-10s %-8s %-6s %-s\n", "#Num", "Time", "Prtcl", "Dir", "From", "To", "OpCode", "Len", "Message");
+
     Config *config = (Config*)arg;
     int rt_addr = config->device.rt_addr;
     

@@ -10,23 +10,23 @@
 
 #define CONFIG_FILE "config.ini"
 
-static void print_config(Config *config) {
-    printf("Device_Number: %d\n", config->device.device_number);
-    printf("Module_Number: %d\n", config->device.module_number);
-    printf("RT_Addr: %d\n", config->device.rt_addr);
-    printf("Sync_Word: 0x%X\n", config->device.sync_word);
-    printf("-----------------\n");
+// static void print_config(Config *config) {
+//     printf("Device_Number: %d\n", config->device.device_number);
+//     printf("Module_Number: %d\n", config->device.module_number);
+//     printf("RT_Addr: %d\n", config->device.rt_addr);
+//     printf("Sync_Word: 0x%X\n", config->device.sync_word);
+//     printf("-----------------\n");
 
-    printf("SourceIP: %s, SourcePort: %d\n", config->network.source.ip, config->network.source.port);
-    printf("DestIP: %s, DestPort: %d\n", config->network.destination.ip, config->network.destination.port);
-    printf("-----------------\n");
+//     printf("SourceIP: %s, SourcePort: %d\n", config->network.source.ip, config->network.source.port);
+//     printf("DestIP: %s, DestPort: %d\n", config->network.destination.ip, config->network.destination.port);
+//     printf("-----------------\n");
 
-    for (size_t i = 0; i < config->cmds.count; ++i) {
-        Message_t *msg = &config->cmds.messages[i];
-        printf("  SubAddr: %02u, OpCode: 0x%02X, Rate: %s\n",
-               msg->sub_address, msg->op_code, msg->rate);
-    }
-}
+//     for (size_t i = 0; i < config->cmds.count; ++i) {
+//         Message_t *msg = &config->cmds.messages[i];
+//         printf("  SubAddr: %02u, OpCode: 0x%02X, Rate: %s\n",
+//                msg->sub_address, msg->op_code, msg->rate);
+//     }
+// }
 
 int main(int argc, char **argv) {
     Config config;
@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    print_config(&config);
+    // print_config(&config);
 
     if (init_socket(&config) < 0) {
         fprintf(stderr, "Failed initialization socket\n");
@@ -48,7 +48,6 @@ int main(int argc, char **argv) {
         perror("Failed initialization module 1553 \n");
         return 1;
     }
-    printf("Init module 1553 success!\n");
 
     signal(SIGINT, handle_sigint);
 
