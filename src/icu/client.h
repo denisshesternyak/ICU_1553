@@ -19,16 +19,10 @@ typedef struct {
 } MsgHeader1553_t;
 #pragma pack(pop)
 
-typedef enum {
-    MIL_STD_1553,
-    UDP,
-} Prtcl_t;
-
 extern pthread_t recv_client_thread;
 
 void close_socket();
 int init_socket(Config *config);
-int send_data(const char *message, size_t len);
 void *receive_data(void *arg);
 uint32_t crc32(const void *data, size_t length);
 void handle_received_data(uint32_t subaddr, const char *text, uint32_t len);

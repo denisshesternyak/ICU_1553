@@ -30,7 +30,7 @@ uint32_t crc32(const void *data, size_t length) {
     for (size_t i = 0; i < length; i++) {
         crc ^= bytes[i];
         for (int j = 0; j < 8; j++) {
-            if (crc & 1)
+            if(crc & 1)
                 crc = (crc >> 1) ^ 0xEDB88320;
             else
                 crc >>= 1;
@@ -57,20 +57,17 @@ int main() {
     char buffer[BUFFER_SIZE];
     memset(buffer, 0, BUFFER_SIZE);
 
-    // Создание UDP сокета
-    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+    if((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("Socket creation failed");
         exit(EXIT_FAILURE);
     }
 
-    // Настройка адреса сервера
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(PORT);
 
-    // Привязка сокета
-    if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+    if(bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         perror("Bind failed");
         close(sockfd);
         exit(EXIT_FAILURE);
@@ -79,11 +76,10 @@ int main() {
     printf("Server listening on port %d...\n", PORT);
 
     while (1) {
-        // Получение данных от клиента
         socklen_t addr_len = sizeof(client_addr);
         int received = recvfrom(sockfd, buffer, BUFFER_SIZE-1, 0, 
                                (struct sockaddr *)&client_addr, &addr_len);
-        if (received < 0) {
+        if(received < 0) {
             perror("Receive failed");
             continue;
         }
@@ -101,11 +97,10 @@ int main() {
         uint32_t crc = crc32(buffer+HEADER_SIZE, header.msg_length-HEADER_SIZE);
         printf("CRC32 0x%08X 0x%08X\n", crc, header.payload_crc32);
 
-        // Отправка ответа клиенту
         const char *response = "Hello from server!";
         int sent = sendto(sockfd, response, strlen(response), 0, 
                         (struct sockaddr *)&client_addr, addr_len);
-        if (sent < 0) {
+        if(sent < 0) {
             perror("Sendto failed");
         } else {
             printf("Sent to %s:%d: %s\n", client_ip, ntohs(client_addr.sin_port), response);

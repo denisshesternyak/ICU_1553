@@ -32,14 +32,14 @@ int main(int argc, char **argv) {
     Config config;
     memset(&config, 0, sizeof(config));
 
-    if (ini_parse(CONFIG_FILE, command_handler, &config) < 0) {
+    if(ini_parse(CONFIG_FILE, command_handler, &config) < 0) {
         printf("Can't load %s\n", CONFIG_FILE);
         return 1;
     }
 
     // print_config(&config);
 
-    if (init_socket(&config) < 0) {
+    if(init_socket(&config) < 0) {
         fprintf(stderr, "Failed initialization socket\n");
         return 1;
     }
@@ -57,6 +57,5 @@ int main(int argc, char **argv) {
     close_socket();
     pthread_join(recv_client_thread, NULL);    
     
-    free(config.cmds.messages);
     printf("Exit.\n");
 }

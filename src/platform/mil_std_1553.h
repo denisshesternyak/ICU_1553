@@ -5,11 +5,13 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <pthread.h>
+#include <stdint.h>
 
 #include "galahad_px.h"
 #include "config.h"
 
-extern pthread_t recv_1553_thread;
+extern pthread_t trmt_1553_thread;
 
 void handle_sigint(int sig);
 
@@ -18,8 +20,5 @@ int init_module_1553(Config *config);
 
 // Release the 1553 module
 int release_module_1553();
-
-// Transmit data as Bus Controller (BC)
-int transmit_1553(const char *text, int rt_addr);
 
 #endif // MIL_STD_1553_H

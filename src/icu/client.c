@@ -27,7 +27,7 @@ uint32_t crc32(const void *data, size_t length) {
     for (size_t i = 0; i < length; i++) {
         crc ^= bytes[i];
         for (int j = 0; j < 8; j++) {
-            if (crc & 1)
+            if(crc & 1)
                 crc = (crc >> 1) ^ 0xEDB88320;
             else
                 crc >>= 1;
@@ -43,7 +43,7 @@ uint64_t get_time_microseconds() {
 }
 
 const char *format_time(uint64_t usec) {
-    static char buf[20];  // Достаточно для "HH:MM:SS.mmm\0"
+    static char buf[20];
     time_t seconds = usec / 1000000;
     struct tm *tm_info = localtime(&seconds);
     int millisec = (usec % 1000000) / 1000;
@@ -57,7 +57,7 @@ const char *format_time(uint64_t usec) {
 }
 
 void close_socket() {
-    if (sockfd > 0) {
+    if(sockfd > 0) {
         shutdown(sockfd, SHUT_RD);
         close(sockfd);
         sockfd = -1;
@@ -68,7 +68,7 @@ void close_socket() {
 int init_socket(Config *config) {
     header.sync_word = config->device.sync_word;
 
-    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+    if((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("Socket creation failed");
         return -1;
     }
@@ -78,7 +78,7 @@ int init_socket(Config *config) {
     client_addr.sin_family = AF_INET;
     client_addr.sin_addr.s_addr = INADDR_ANY;
     client_addr.sin_port = htons(config->network.source.port);
-    if (bind(sockfd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+    if(bind(sockfd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
         perror("Bind failed");
         close(sockfd);
         return -1;
@@ -87,7 +87,7 @@ int init_socket(Config *config) {
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(config->network.destination.port);
-    if (inet_pton(AF_INET, config->network.destination.ip, &server_addr.sin_addr) <= 0) {
+    if(inet_pton(AF_INET, config->network.destination.ip, &server_addr.sin_addr) <= 0) {
         perror("Invalid server address");
         close(sockfd);
         return -1;
@@ -95,7 +95,7 @@ int init_socket(Config *config) {
 
     printf("Init SOCKET success!\n");
 
-    if (pthread_create(&recv_client_thread, NULL, receive_data, config) != 0) {
+    if(pthread_create(&recv_client_thread, NULL, receive_data, config) != 0) {
         perror("Thread creation failed");
         close(sockfd);
         return 1;
@@ -104,14 +104,9 @@ int init_socket(Config *config) {
     return 0;
 }
 
-int send_data(const char *message, size_t len) {
-    ssize_t sent = sendto(sockfd, message, len, 0, 
+static ssize_t send_data(const char *message, size_t len) {
+    return sendto(sockfd, message, len, 0, 
                          (struct sockaddr *)&server_addr, sizeof(server_addr));
-    if (sent < 0) {
-        perror("Failed to send the message");
-        return -1;
-    }
-    return 0;
 }
 
 void *receive_data(void *arg) {
@@ -126,11 +121,11 @@ void *receive_data(void *arg) {
     while (!stop_flag) {
         int received = recvfrom(sockfd, buffer, BUFFER_SIZE-1, 0, 
                                (struct sockaddr *)&from_addr, &addr_len);
-        if (received == 0) break;
-        if (received < 0) {
-            if (errno == EBADF) {
+        if(received == 0) break;
+        if(received < 0) {
+            if(errno == EBADF) {
                 fprintf(stderr, "Socket was closed (EBADF), exiting thread.\n");
-            } else if (errno == EINTR) {
+            } else if(errno == EINTR) {
                 fprintf(stderr, "Interrupted by signal (EINTR), exiting thread.\n");
             } else {
                 perror("Receive failed");
@@ -147,15 +142,12 @@ void *receive_data(void *arg) {
     return NULL;
 }
 
-static void print_msg(const MsgHeader1553_t *hdr, Prtcl_t prtcl, const char *from, const char *to, const char *text, uint32_t len) {
-    printf("%-6u %-14s %-6s %-4s %-10s %-10s 0x%-6.2X %-6u %-s\n",
-        hdr->msg_seq_number,
+static void print_msg(uint32_t opcode, const char *from, const char *to, const char *text, uint32_t len) {
+    printf("%-14s %-10s %-10s 0x%-6.2X %-6u %-s\n",
         format_time(get_time_microseconds()),
-        prtcl==UDP ? "UDP" : "1553",
-        prtcl==UDP ? "T" : "R",
         from,
         to,
-        hdr->msg_opcode,
+        opcode,
         len,
         text);
 }
@@ -184,7 +176,7 @@ void handle_received_data(uint32_t subaddr, const char *text, uint32_t len) {
 
     // print_header(&header);
     // printf("Received text -> \"%s\"\n", text);
-    print_msg(&header, MIL_STD_1553, "PLATFORM", "ICU", text, len);
+    print_msg(subaddr, "PLATFORM", "ICU", text, len);
 
     char message[128];
     memset(message, 0, 128);
@@ -193,8 +185,11 @@ void handle_received_data(uint32_t subaddr, const char *text, uint32_t len) {
     memcpy(message, &header, HEADER_SIZE);
     memcpy(message+HEADER_SIZE, text, len);
 
-    if(send_data(message, header.msg_length) == 0) {
-        print_msg(&header, UDP, "ICU", "IRST", text, len);
+    if(send_data(message, header.msg_length) < 0) {
+        perror("Failed to send the message");
     }
+    // if(send_data(message, header.msg_length) == 0) {
+    //     print_msg(&header, UDP, "ICU", "IRST", text, len);
+    // }
 }
 
