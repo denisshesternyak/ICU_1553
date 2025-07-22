@@ -39,13 +39,13 @@ int main(int argc, char **argv) {
 
     // print_config(&config);
 
-    if(init_socket(&config) < 0) {
-        fprintf(stderr, "Failed initialization socket\n");
+    if(init_module_1553(&config) != 0) {
+        perror("Failed initialization module 1553 \n");
         return 1;
     }
 
-    if(init_module_1553(&config) != 0) {
-        perror("Failed initialization module 1553 \n");
+    if(init_socket(&config) < 0) {
+        fprintf(stderr, "Failed initialization socket\n");
         return 1;
     }
 

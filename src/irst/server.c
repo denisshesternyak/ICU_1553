@@ -12,9 +12,17 @@
 #include "server.h"
 #include "config.h"
 
+#define ICU_STATUS_OPCODE 0x10
+#define ICU_STATUS_ACK_OPCODE 0x11
+#define ICU_STATUS_ACK_MSG "ICU STATUS ACK" 
+
 pthread_t trmt_client_thread;
 pthread_t recv_client_thread;
+struct sockaddr_in client_addr;
+socklen_t addr_len;
+char client_ip[INET_ADDRSTRLEN];
 
+static void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr);
 static void print_msg(uint32_t opcode, const char *dir, const char *client_ip, const char *text, uint32_t len);
 static uint32_t crc32(const void *data, size_t length);
 static void print_header(const MsgHeader1553_t *hdr);
@@ -40,14 +48,12 @@ void close_socket() {
 void *receive_data(void *arg) {
     //Config *config = (Config*)arg;
 
-    struct sockaddr_in client_addr;
     char buffer[BUFFER_SIZE];
 
     printf("  Running the receive SOCKET thread...\n");
-    printf("\n%-14s %-10s %-10s %-16s %-8s %-6s %-s\n", "Time", "From", "To", "ClientIP", "OpCode", "Len", "Message");
+    printf("\n%-14s %-4s %-16s %-8s %-6s %-s\n", "Time", "Dir", "ClientIP", "OpCode", "Len", "Message");
 
     while (!stop_flag) {
-        socklen_t addr_len = sizeof(client_addr);
         int received = recvfrom(sockfd, buffer, BUFFER_SIZE-1, 0, 
                                (struct sockaddr *)&client_addr, &addr_len);
         if (received < 0) {
@@ -60,7 +66,6 @@ void *receive_data(void *arg) {
         }
         
         buffer[received] = '\0';
-        char client_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
 
         MsgHeader1553_t header;
@@ -75,19 +80,30 @@ void *receive_data(void *arg) {
 
         if(crc32(msg, len) == header.payload_crc32) {
             print_msg(header.msg_opcode, "R", client_ip, msg, len);
-        }
+            if(header.msg_opcode == ICU_STATUS_OPCODE) {
+                char message[BUFFER_SIZE];
+                memset(message, 0, BUFFER_SIZE);
 
-        // const char *response = "Hello from server!";
-        // int sent = sendto(sockfd, response, strlen(response), 0, 
-        //                 (struct sockaddr *)&client_addr, addr_len);
-        // if(sent < 0) {
-        //     perror("Sendto failed");
-        // } else {
-        //     printf("Sent to %s:%d: %s\n", client_ip, ntohs(client_addr.sin_port), response);
-        // }
+                const char *msg = ICU_STATUS_ACK_MSG;
+                size_t len = strlen(ICU_STATUS_ACK_MSG);
+
+                create_header(ICU_STATUS_ACK_OPCODE, msg, len, &header);
+                memcpy(message, &header, HEADER_SIZE);
+                memcpy(message+HEADER_SIZE, msg, len);
+
+                if(transmit_data(message, header.msg_length) >= 0) {
+                    print_msg(header.msg_opcode, "T", client_ip, msg, len);
+                }
+            }
+        }
     }
 
     return NULL;
+}
+
+int transmit_data(const char *msg, size_t len) {
+    return sendto(sockfd, msg, len, 0, 
+                    (struct sockaddr *)&client_addr, addr_len);
 }
 
 int init_socket(Config *config) {
@@ -110,6 +126,8 @@ int init_socket(Config *config) {
         close(sockfd);
         return -1;
     }
+
+    addr_len = sizeof(client_addr);
 
     printf("Init SOCKET success!\n");
 
@@ -141,6 +159,18 @@ static const char *format_time(uint64_t usec) {
              millisec);
     return buf;
 }
+
+static void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr) {
+    static uint32_t msg_seq_counter = 1;
+    hdr->msg_opcode = subaddr;
+    hdr->msg_length = len + HEADER_SIZE;
+    hdr->msg_seq_number = msg_seq_counter++;
+    hdr->payload_crc32 = crc32(text, len);
+    hdr->send_time = 0;
+    hdr->receive_time = get_time_microseconds();
+    hdr->send_time = get_time_microseconds();
+}
+
 
 static void print_msg(uint32_t opcode, const char *dir, const char *client_ip, const char *text, uint32_t len) {
     printf("%-14s %-4s %-16s 0x%-6.2X %-6u %-s\n",

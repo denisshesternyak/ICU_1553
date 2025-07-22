@@ -21,9 +21,15 @@ typedef struct {
 } Network_t;
 
 typedef struct {
+    long last_time;
+    int status;
+} DataFrame_t;
+
+typedef struct {
     int op_code;
     int rate;
     char text[BUFFER_SIZE];
+    DataFrame_t frame;
 } Message_t;
 
 typedef struct {

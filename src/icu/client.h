@@ -26,7 +26,6 @@ extern pthread_t recv_client_thread;
 void handle_sigint(int sig);
 void close_socket();
 int init_socket(Config *config);
-void *receive_data(void *arg);
 uint32_t crc32(const void *data, size_t length);
 void handle_received_data(uint32_t subaddr, const char *text, uint32_t len);
 

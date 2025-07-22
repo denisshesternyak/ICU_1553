@@ -28,5 +28,6 @@ void handle_sigint(int sig);
 void close_socket();
 int init_socket(Config *config);
 void *receive_data(void *arg);
+int transmit_data(const char *msg, size_t len);
 
 #endif //SERVER_H

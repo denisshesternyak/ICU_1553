@@ -55,7 +55,7 @@ int init_module_1553(Config *config) {
     return 0;
 }
 
-int transmit_1553(const char *text, int rt_addr) {
+int transmit_1553(const char *msg, size_t len, int rt_addr) {
     int status, frameid;
     short int id1;
     usint statusword;
@@ -69,10 +69,9 @@ int transmit_1553(const char *text, int rt_addr) {
 
     usint msgdata[33] = {0};
 
-    size_t len = strlen(text);
-    add_text(text, msgdata, len);
+    add_text(msg, msgdata, len);
 
-    status = Command_Word_Px(rt_addr, RECEIVE, 1, getWordCount(text), &msgdata[0]);
+    status = Command_Word_Px(rt_addr, RECEIVE, 1, getWordCount(msg), &msgdata[0]);
     if(status < 0) return handle_error(status, "Command_Word_Px failure");
 
     status = Create_1553_Message_Px(handle, BC2RT, msgdata, &id1);

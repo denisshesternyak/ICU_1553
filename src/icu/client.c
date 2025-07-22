@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <stddef.h>
 #include <sys/time.h>
 #include <stdio.h>
@@ -10,17 +12,27 @@
 #include <errno.h>
 
 #include "client.h"
+#include "mil_std_1553.h"
 
 #define HEADER_SIZE 44
 #define BUFFER_SIZE 1024
+
+#define ICU_STATUS_ACK_OPCODE 0x11
 
 static int sockfd = -1;
 static struct sockaddr_in server_addr;
 static MsgHeader1553_t header;
 
 pthread_t recv_client_thread;
+pthread_t trmt_client_thread;
 
 volatile sig_atomic_t stop_flag = 0;
+
+static void parse_buffer(const char *buffer);
+static void print_msg(uint32_t opcode, const char *from, const char *to, const char *text, uint32_t len);
+static void *receive_data(void *arg);
+static void* transmit_data(void* arg);
+void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr);
 
 void handle_sigint(int sig) {
     stop_flag = 1;
@@ -108,6 +120,12 @@ int init_socket(Config *config) {
         return -1;
     }
 
+    if(pthread_create(&trmt_client_thread, NULL, transmit_data, config) != 0) {
+        perror("Thread creation failed");
+        close(sockfd);
+        return -1;
+    }
+
     return 0;
 }
 
@@ -116,7 +134,7 @@ static ssize_t send_data(const char *message, size_t len) {
                          (struct sockaddr *)&server_addr, sizeof(server_addr));
 }
 
-void *receive_data(void *arg) {
+static void *receive_data(void *arg) {
     //Config *config = (Config*)arg;
 
     char buffer[BUFFER_SIZE];
@@ -144,9 +162,89 @@ void *receive_data(void *arg) {
         char from_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &from_addr.sin_addr, from_ip, INET_ADDRSTRLEN);
         //printf("Received from %s:%d: %s\n", from_ip, ntohs(from_addr.sin_port), buffer);
+
+        parse_buffer(buffer);
     }
 
     return NULL;
+}
+
+static void* transmit_data(void* arg) {
+    Config *config = (Config*)arg;
+
+    struct timespec start_time;
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
+
+    int opcode = 0;
+    const char *msg;
+    size_t len;
+    int frame_executed = 0;
+
+    printf("  Running the transmit SOCKET thread...\n");
+
+    while (!stop_flag) {
+        struct timespec current_time;
+        clock_gettime(CLOCK_MONOTONIC, &current_time);
+        long elapsed_ms = (current_time.tv_sec - start_time.tv_sec) * 1000 +
+                         (current_time.tv_nsec - start_time.tv_nsec) / 1000000;
+
+        for(int i = 0; i < config->cmds.count; i++) {
+            int rate = 1000 / config->cmds.messages[i].rate;
+            long last_time = config->cmds.messages[i].frame.last_time;
+            
+            if(elapsed_ms - last_time >= rate) {
+                config->cmds.messages[i].frame.status = 1;
+                config->cmds.messages[i].frame.last_time = elapsed_ms;
+            }
+        }
+
+        for(int i = 0; i < config->cmds.count; i++) {
+            if(config->cmds.messages[i].frame.status) {
+                opcode = config->cmds.messages[i].op_code;
+                msg = config->cmds.messages[i].text;
+                len = strlen(msg);
+
+                config->cmds.messages[i].frame.status = 0;
+                frame_executed = 1;
+                break;
+            }
+        }
+
+        if(!frame_executed) {
+            usleep(1000);
+            continue;
+        }
+        frame_executed = 0;
+
+        char message[BUFFER_SIZE];
+        memset(message, 0, BUFFER_SIZE);
+
+        create_header(opcode, msg, len, &header);
+        memcpy(message, &header, HEADER_SIZE);
+        memcpy(message+HEADER_SIZE, msg, len);
+
+        if(send_data(message, header.msg_length) >= 0) {
+            print_msg(opcode, "ICU", "IRST", msg, len);
+        }
+    }
+
+    pthread_exit(NULL);
+}
+
+static void parse_buffer(const char *buffer) {
+    MsgHeader1553_t header;
+    memcpy(&header, buffer, sizeof(MsgHeader1553_t));
+    const char *msg = buffer+HEADER_SIZE;
+    size_t len = header.msg_length-HEADER_SIZE;
+
+    if(crc32(msg, len) == header.payload_crc32) {
+        if(header.msg_opcode == ICU_STATUS_ACK_OPCODE) {
+            print_msg(header.msg_opcode, "IRST", "ICU", msg, len);
+        } else {
+            //SEND TO PLATFORM
+            print_msg(header.msg_opcode, "IRST", "PLATFORM", msg, len);
+        }
+    }    
 }
 
 static void print_msg(uint32_t opcode, const char *from, const char *to, const char *text, uint32_t len) {
@@ -159,18 +257,6 @@ static void print_msg(uint32_t opcode, const char *from, const char *to, const c
         text);
 }
 
-// static void print_header(const MsgHeader1553_t *hdr) {
-//     printf("HEADER STRUCTURE:\n");
-//     printf("  Sync Word      : 0x%08X\n", hdr->sync_word);
-//     printf("  Msg OpCode     : 0x%08X\n", hdr->msg_opcode);
-//     printf("  Msg Length     : %u bytes\n", hdr->msg_length);
-//     printf("  Msg Sequence # : %u\n", hdr->msg_seq_number);
-//     printf("  CRC-32         : 0x%08X\n", hdr->payload_crc32);
-//     printf("  Send Time      : %lu us\n", (uint64_t)hdr->send_time);
-//     printf("  Receive Time   : %lu us\n", (uint64_t)hdr->receive_time);
-//     printf("  Spare          : %lu\n", (uint64_t)hdr->spare);
-// }
-
 void handle_received_data(uint32_t subaddr, const char *text, uint32_t len) {
     static uint32_t msg_seq_counter = 1;
 
@@ -181,12 +267,10 @@ void handle_received_data(uint32_t subaddr, const char *text, uint32_t len) {
     header.send_time = 0;
     header.receive_time = get_time_microseconds();
 
-    // print_header(&header);
-    // printf("Received text -> \"%s\"\n", text);
-    print_msg(subaddr, "PLATFORM", "ICU", text, len);
+    print_msg(subaddr, "PLATFORM", "IRST", text, len);
 
-    char message[128];
-    memset(message, 0, 128);
+    char message[BUFFER_SIZE];
+    memset(message, 0, BUFFER_SIZE);
 
     header.send_time = get_time_microseconds();
     memcpy(message, &header, HEADER_SIZE);
@@ -195,8 +279,16 @@ void handle_received_data(uint32_t subaddr, const char *text, uint32_t len) {
     if(send_data(message, header.msg_length) < 0) {
         perror("Failed to send the message");
     }
-    // if(send_data(message, header.msg_length) == 0) {
-    //     print_msg(&header, UDP, "ICU", "IRST", text, len);
-    // }
+}
+
+void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr) {
+    static uint32_t msg_seq_counter = 1;
+    hdr->msg_opcode = subaddr;
+    hdr->msg_length = len + HEADER_SIZE;
+    hdr->msg_seq_number = msg_seq_counter++;
+    hdr->payload_crc32 = crc32(text, len);
+    hdr->send_time = 0;
+    hdr->receive_time = get_time_microseconds();
+    hdr->send_time = get_time_microseconds();
 }
 

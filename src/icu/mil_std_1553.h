@@ -20,6 +20,6 @@ int init_module_1553(Config *config);
 int release_module_1553();
 
 // Transmit data as Bus Controller (BC)
-int transmit_1553(const char *text, int rt_addr);
+int transmit_1553(const char *msg, size_t len, int rt_addr);
 
 #endif // MIL_STD_1553_H
