@@ -10,34 +10,8 @@ static int parse_int_checked(const char *value, int min, int max, const char *fi
 int command_handler(void* user, const char* section, const char* name, const char* value) {
     Config* config = (Config*)user;
 
-    if(strcmp(section, "device") == 0) {
-        if(strcmp(name, "Device_Number") == 0) {
-            config->device.device_number = atoi(value);
-        } else if(strcmp(name, "Module_Number") == 0) {
-            config->device.module_number = atoi(value);
-        } else if(strcmp(name, "RT_Addr") == 0) {
-            config->device.rt_addr = atoi(value);
-        } else if(strcmp(name, "Sync_Word") == 0) {
-            config->device.sync_word = strtoul(value, NULL, 0);
-        }
-        return 1;
-    }
-
-    if(strcmp(section, "source") == 0) {
-        if(strcmp(name, "IP") == 0) {
-            strncpy(config->network.source.ip, value, sizeof(config->network.source.ip) - 1);
-        } else if(strcmp(name, "Port") == 0) {
-            config->network.source.port = atoi(value);
-        }
-        return 1;
-    }
-
-    if(strcmp(section, "destination") == 0) {
-        if(strcmp(name, "IP") == 0) {
-            strncpy(config->network.destination.ip, value, sizeof(config->network.destination.ip) - 1);
-        } else if(strcmp(name, "Port") == 0) {
-            config->network.destination.port = atoi(value);
-        }
+    if(strcmp(name, "Port") == 0) {
+        config->port = atoi(value);
         return 1;
     }
 
@@ -59,7 +33,9 @@ int command_handler(void* user, const char* section, const char* name, const cha
             last_section[sizeof(last_section) - 1] = '\0';
         }
 
-        if(strcmp(name, "OpCode") == 0) {
+        if(strcmp(name, "SubAddress") == 0) {
+            if(!parse_int_checked(value, 0, 255, "SubAddress", &current->sub_address)) return 0;
+        } else if(strcmp(name, "OpCode") == 0) {
             if(!parse_int_checked(value, 0, 255, "OpCode", &current->op_code)) return 0;
         } else if(strcmp(name, "Rate") == 0) {
             if(!parse_int_checked(value, 1, 1000, "Rate", &current->rate)) return 0;
@@ -68,6 +44,7 @@ int command_handler(void* user, const char* section, const char* name, const cha
         } else {
             fprintf(stderr, "Warning: unknown field '%s' in section [%s]\n", name, section);
         }
+
         return 1;
     }
 

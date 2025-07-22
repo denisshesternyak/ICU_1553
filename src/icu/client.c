@@ -20,8 +20,15 @@ static MsgHeader1553_t header;
 
 pthread_t recv_client_thread;
 
+volatile sig_atomic_t stop_flag = 0;
+
+void handle_sigint(int sig) {
+    stop_flag = 1;
+    close_socket();
+}
+
 uint32_t crc32(const void *data, size_t length) {
-    const int *bytes = (const int *)data;
+    const uint8_t *bytes = (const uint8_t *)data;
     uint32_t crc = 0xFFFFFFFF;
 
     for (size_t i = 0; i < length; i++) {
@@ -36,13 +43,13 @@ uint32_t crc32(const void *data, size_t length) {
     return ~crc;
 }
 
-uint64_t get_time_microseconds() {
+static uint64_t get_time_microseconds() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return (uint64_t)tv.tv_sec * 1000000 + tv.tv_usec;
 }
 
-const char *format_time(uint64_t usec) {
+static const char *format_time(uint64_t usec) {
     static char buf[20];
     time_t seconds = usec / 1000000;
     struct tm *tm_info = localtime(&seconds);
@@ -98,7 +105,7 @@ int init_socket(Config *config) {
     if(pthread_create(&recv_client_thread, NULL, receive_data, config) != 0) {
         perror("Thread creation failed");
         close(sockfd);
-        return 1;
+        return -1;
     }
 
     return 0;
@@ -110,13 +117,13 @@ static ssize_t send_data(const char *message, size_t len) {
 }
 
 void *receive_data(void *arg) {
-    printf("  Running the receive SOCKET thread...\n");
-
     //Config *config = (Config*)arg;
 
     char buffer[BUFFER_SIZE];
     struct sockaddr_in from_addr;
     socklen_t addr_len = sizeof(from_addr);
+    
+    printf("  Running the receive SOCKET thread...\n");
 
     while (!stop_flag) {
         int received = recvfrom(sockfd, buffer, BUFFER_SIZE-1, 0, 

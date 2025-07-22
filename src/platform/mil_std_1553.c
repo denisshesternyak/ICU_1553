@@ -1,5 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include <signal.h>
+#include <unistd.h>
+
 #include "mil_std_1553.h"
 #include "config.h"
 
@@ -15,6 +18,12 @@ static int get_frameid(int rt, const char *str, int subaddr, int *frameid);
 static void add_text(const char *str, usint *msgdata, size_t len);
 static int getWordCount(const char *msg);
 static void print_status_1553(usint stat);
+
+volatile sig_atomic_t stop_flag = 0;
+
+void handle_sigint(int sig) {
+    stop_flag = 1;
+}
 
 int release_module_1553() {
     if(handle >= 0) {
@@ -219,7 +228,7 @@ static int handle_error(int status, const char *msg) {
     Get_Error_String_Px(status, errstr);
     printf("%s: %s\n", msg, errstr);
     release_module_1553();
-    return 1;
+    return status;
 }
 
 static void print_status_1553(usint stat) {

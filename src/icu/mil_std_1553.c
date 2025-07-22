@@ -49,7 +49,7 @@ int init_module_1553(Config *config) {
     if(pthread_create(&recv_1553_thread, NULL, receive_1553_thread, config) != 0) {
         perror("Failed to create receive 1553 thread");
         release_module_1553(handle);
-        return 1;
+        return -1;
     }
 
     return 0;
@@ -187,7 +187,7 @@ static int handle_error(int status, const char *msg) {
     Get_Error_String_Px(status, errstr);
     printf("%s: %s\n", msg, errstr);
     Release_Module_Px(handle);
-    return 1;
+    return status;
 }
 
 static void print_status_1553(usint stat) {

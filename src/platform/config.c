@@ -5,12 +5,6 @@
 
 #include "config.h"
 
-volatile sig_atomic_t stop_flag = 0;
-
-void handle_sigint(int sig) {
-    stop_flag = 1;
-}
-
 static int parse_int_checked(const char *value, int min, int max, const char *field_name, int *out)
 {
     char *endptr = NULL;

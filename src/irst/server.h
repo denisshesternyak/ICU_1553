@@ -1,11 +1,12 @@
-#ifndef CLIENT_H
-#define CLIENT_H
+#ifndef SERVER_H
+#define SERVER_H
 
 #include <pthread.h>
 #include <stdint.h>
-#include <signal.h>
 
 #include "config.h"
+
+#define HEADER_SIZE 44
 
 #pragma pack(push, 1)
 typedef struct {
@@ -20,14 +21,12 @@ typedef struct {
 } MsgHeader1553_t;
 #pragma pack(pop)
 
-extern volatile sig_atomic_t stop_flag;
+extern pthread_t trmt_client_thread;
 extern pthread_t recv_client_thread;
 
 void handle_sigint(int sig);
 void close_socket();
 int init_socket(Config *config);
 void *receive_data(void *arg);
-uint32_t crc32(const void *data, size_t length);
-void handle_received_data(uint32_t subaddr, const char *text, uint32_t len);
 
-#endif //CLIENT_H
+#endif //SERVER_H

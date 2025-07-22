@@ -1,14 +1,9 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-typedef struct {
-    int device_number;
-    int module_number;
-    int rt_addr;
-} Device_t;
+#define BUFFER_SIZE 1024
 
 typedef struct {
-    int id;
     long last_time;
     int status;
 } DataFrame_t;
@@ -17,7 +12,7 @@ typedef struct {
     int sub_address;
     int op_code;
     int rate;
-    char text[65];
+    char text[BUFFER_SIZE];
     DataFrame_t frame;
 } Message_t;
 
@@ -27,7 +22,7 @@ typedef struct {
 } CommandList_t;
 
 typedef struct {
-    Device_t device;
+    int port;
     CommandList_t cmds;
 } Config;
 

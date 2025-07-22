@@ -58,4 +58,5 @@ int main(int argc, char **argv) {
     pthread_join(recv_client_thread, NULL);    
     
     printf("Exit.\n");
+    return 0;
 }
