@@ -8,12 +8,13 @@ pthread_t recv_1553_thread;
 
 static void* receive_1553_thread(void* arg);
 static void add_text(const char *str, usint *msgdata, size_t len);
-static int getWordCount(const char *msg);
-static void print_status_1553(usint stat);
+// static int getWordCount(const char *msg);
 static int handle_error(int status, const char *msg);
+//static void print_status_1553(usint stat);
 
 int release_module_1553() {
     if(handle >= 0) {
+        stop_flag = 1;
         Stop_Px(handle);
         Release_Module_Px(handle);
         printf("\nRelease MODULE_1553\n");
@@ -32,6 +33,14 @@ int init_module_1553(Config *config) {
 
     handle = status;
     printf("Init MODULE_1553 success!\n");
+
+    usint cardtype;
+    status = Get_Card_Type_Px(handle, &cardtype);
+	if (status < 0)	printf ("Get_Card_Type_Px returned error: %s\n", Print_Error_Px(status));
+
+    if ((cardtype == MOD_1553_SF) || (cardtype == MOD_1760_SF)) {
+		printf("  The module is a Single-Function module (PxS),\n");
+	}
 
     status = Get_Board_Status_Px(handle);
     printf("  Board status is ");
@@ -55,115 +64,101 @@ int init_module_1553(Config *config) {
     return 0;
 }
 
-int transmit_1553(const char *msg, size_t len, int rt_addr) {
-    int status, frameid;
-    short int id1;
-    usint statusword;
-    struct FRAME framestruct[2];
+int load_datablk(int blknum, const char *text, size_t len) {
+    if(len > 64) { printf("Load_Datablk failure: length of the message > 64\n"); return -1; }
 
-    status = Set_Mode_Px(handle, BC_MODE);
-    if(status < 0) {
-        printf("Set_Mode failure. %s\n", Print_Error_Px(status));
-        return status;
+    int status;
+    usint msgdata[32];
+    memset(msgdata, 0, sizeof(msgdata));
+
+    for (int i = 0; i < len; i += 2) {
+        unsigned char c1 = (i < len) ? text[i] : 0;
+        unsigned char c2 = (i + 1 < len) ? text[i + 1] : 0;
+        msgdata[i / 2] = (c1 << 8) | c2;
     }
 
-    usint msgdata[33] = {0};
-
-    add_text(msg, msgdata, len);
-
-    status = Command_Word_Px(rt_addr, RECEIVE, 1, getWordCount(msg), &msgdata[0]);
-    if(status < 0) return handle_error(status, "Command_Word_Px failure");
-
-    status = Create_1553_Message_Px(handle, BC2RT, msgdata, &id1);
-    if(status < 0) return handle_error(status, "Create_1553_Message failure");
-
-    framestruct[0].id = id1;
-    framestruct[0].gaptime = 5000;
-    framestruct[1].id = 0;
-
-    frameid = Create_Frame_Px(handle, &framestruct[0]);
-    if(status < 0) return handle_error(status, "Create_Frame failure");
-
-    status = Start_Frame_Px(handle, frameid, FULLFRAME);
-    if(status < 0) return handle_error(status, "Start_Frame failure");
-
-    status = Run_BC_Px(handle, 1);
-    if(status < 0) return handle_error(status, "Run_BC failure");
-
-    usleep(1000000L);
-    do {
-        status = Get_Msgentry_Status_Px(handle, frameid, 0, &statusword);
-    } while ((statusword & 0x8000) != 0x8000);
-
-    printf("Status of message %d: %04X\n", id1, statusword);
-    print_status_1553(statusword);
-
-    return 0;
+    status = Load_Datablk_Px(handle, blknum, msgdata);
+    if(status < 0) { handle_error(status, "Load_Datablk_Px failure");}
+    return status;
 }
 
 static void* receive_1553_thread(void* arg) {
-    printf("  Running the receive MODULE_1553 thread...\n");
-    printf("\n%-14s %-10s %-10s %-8s %-6s %-s\n", "Time", "From", "To", "OpCode", "Len", "Message");
-
     Config *config = (Config*)arg;
-    int rt_addr = config->device.rt_addr;
-    
-    char errstr[255];
-    int status;
-    usint rt, subaddr, direction, wordCount, rt_id;
-    usint msgdata[33] = {0};
 
+    int rt_addr = config->device.rt_addr;
+    char errstr[255];
+    int status, blknum;
+    usint rt, subaddr, direction, wordCount, rt_id;
+    usint msgdata[32] = {0};
+    
     status = Set_Mode_Px(handle, RT_MODE);
-    if(status < 0) { handle_error(status, "Set_Mode failure"); goto end; }
+    if(status < 0) { handle_error(status, "Set_Mode failure"); }
 
     status = Set_RT_Active_Px(handle, rt_addr, 0);
-    if(status < 0) { handle_error(status, "Set_RT_Active failure"); goto end; }
+    if(status < 0) { handle_error(status, "Set_RT_Active failure");}
 
-    int blknum = 0;
-    for (size_t i = 0; i < 32; ++i) {
-        int rtid;
-        int sa = blknum;
-        RT_Id_Px(rt_addr, RECEIVE, sa, &rtid);
-        Assign_RT_Data_Px(handle, rtid, blknum++);
+    int rtid;
+    CommandList_t *cmd = &config->cmds;
+    for (size_t i = 0; i < cmd->count_rx; ++i) {
+        Message_t *msg = &cmd->messages_rx[i];
+        for (size_t i = 0; i < 32; ++i) {
+            if(i == msg->op_code) {
+                RT_Id_Px(rt_addr, TRANSMIT, msg->op_code, &rtid);
+            } else {
+                RT_Id_Px(rt_addr, RECEIVE, i, &rtid);
+            }
+            Assign_RT_Data_Px(handle, rtid, i);
+        }
     }
 
     status = Run_RT_Px(handle);
-    if(status < 0) { handle_error(status, "Run_RT failure"); goto end; }
+    if(status < 0) { handle_error(status, "Run_RT failure"); }    
+
+    printf("  Running the receive MODULE_1553 thread...\n");
 
     struct CMDENTRYRT rtcmd;
     while (!stop_flag) {
-        status = Get_Next_RT_Message_Px(handle, &rtcmd);
-        if(status < 0) {
-            usleep(5000);
-            continue;
-        }
+        if(Read_RT_Status_Px(handle) > 0) {
+            status = Get_Next_RT_Message_Px(handle, &rtcmd);
+            if(status < 0) continue;
+            
+            Parse_CommandWord_Px(rtcmd.command, &rt, &subaddr, &direction, &wordCount, &rt_id);
+            if(direction == TRANSMIT) continue;
+            if(wordCount == 0) wordCount = 32; // 0 indicates a word count of 32.
 
-        Parse_CommandWord_Px(rtcmd.command, &rt, &subaddr, &direction, &wordCount, &rt_id);
-        if(wordCount == 0) wordCount = 32; // 0 indicates a word count of 32.
+            blknum = Get_Blknum_Px(handle, rt_id);
 
-        blknum = subaddr;
+            status = Read_Datablk_Px(handle, blknum, msgdata);
+            if(status < 0) {
+                Get_Error_String_Px(status, errstr);
+                printf("Failed to read data block %d: %s\n", blknum, errstr);
+                continue;
+            }
 
-        status = Read_Datablk_Px(handle, blknum, msgdata);
-        if(status >= 0) {
-            char received_text[65] = {0};
+            char received_text[64] = {0};
             uint32_t len = 0;
+            // for (int j = 0; j < wordCount && len < 64; j++) {
+            //     unsigned char c1 = (msgdata[j] >> 8) & 0xFF;
+            //     unsigned char c2 = msgdata[j] & 0xFF;
+            //     if(c1 >= 32 && c1 <= 126) received_text[len++] = c1;
+            //     if(c2 >= 32 && c2 <= 126 && len < 64) received_text[len++] = c2;
+            // }
+
             for (int j = 0; j < wordCount && len < 64; j++) {
-                unsigned char c1 = (msgdata[j] >> 8) & 0xFF;
-                unsigned char c2 = msgdata[j] & 0xFF;
-                if(c1 >= 32 && c1 <= 126) received_text[len++] = c1;
-                if(c2 >= 32 && c2 <= 126 && len < 64) received_text[len++] = c2;
+                usint word = msgdata[j];
+                uint8_t byte;
+                if((byte = (word >> 8) & 0xFF) == 0) break;
+                received_text[len++] = byte;
+                if((byte = word & 0xFF) == 0) break;
+                received_text[len++] = byte;
             }
 
             if(len > 0) {
                 handle_received_data(subaddr, received_text, len);
             }
-        } else {
-            Get_Error_String_Px(status, errstr);
-            printf("Failed to read data block %d: %s\n", blknum, errstr);
         }
     }
 
-end:
     pthread_exit(NULL);
 }
 
@@ -175,11 +170,11 @@ static void add_text(const char *str, usint *msgdata, size_t len) {
     }
 }
 
-static int getWordCount(const char *msg) {
-    size_t len = strlen(msg);
-    if(len >= 64) return 0; // 0 indicates a word count of 32.
-    return (len + 1) / 2;
-}
+// static int getWordCount(const char *msg) {
+//     size_t len = strlen(msg);
+//     if(len >= 64) len = 64;
+//     return (len + 1) / 2;
+// }
 
 static int handle_error(int status, const char *msg) {
     char errstr[255];
@@ -189,50 +184,50 @@ static int handle_error(int status, const char *msg) {
     return status;
 }
 
-static void print_status_1553(usint stat) {
-    int length = 0;
-    if((stat & 0x8000) == 0x8000) {
-        printf("       **  END_OF_MSG  ");
-        length = 23;
-    } else {
-        printf("Invalid status - Message not yet complete\n");
-        return;
-    }
-    if((stat & 0x2000) == 0x2000) {
-        printf("MSG_ERROR  ");
-        length += 11;
-    }
-    if((stat & 0x0100) == 0x0100) {
-        printf("ME_SET  ");
-        length += 8;
-    }
-    if((stat & 0x0800) == 0x0800) {
-        printf("BAD_STATUS  ");
-        length += 12;
-    }
-    if((stat & 0x0400) == 0x0400) {
-        printf("INVALID_MSG  ");
-        length += 13;
-    }
-    if(length > 60) {
-        printf("**\n       **  ");
-        length = 11;
-    }
-    if((stat & 0x0200) == 0x0200) {
-        printf("LATE_RESP  ");
-        length += 11;
-    }
-    if(length > 60) {
-        printf("**\n       **  ");
-        length = 11;
-    }
-    if((stat & 0x0080) == 0x0080) {
-        printf("INVALID_WORD  ");
-        length += 14;
-    }
-    if(length > 60) {
-        printf("**\n       **  ");
-        length = 11;
-    }
-    printf("**\n");
-}
+// static void print_status_1553(usint stat) {
+//     int length = 0;
+//     if((stat & 0x8000) == 0x8000) {
+//         printf("       **  END_OF_MSG  ");
+//         length = 23;
+//     } else {
+//         printf("Invalid status - Message not yet complete\n");
+//         return;
+//     }
+//     if((stat & 0x2000) == 0x2000) {
+//         printf("MSG_ERROR  ");
+//         length += 11;
+//     }
+//     if((stat & 0x0100) == 0x0100) {
+//         printf("ME_SET  ");
+//         length += 8;
+//     }
+//     if((stat & 0x0800) == 0x0800) {
+//         printf("BAD_STATUS  ");
+//         length += 12;
+//     }
+//     if((stat & 0x0400) == 0x0400) {
+//         printf("INVALID_MSG  ");
+//         length += 13;
+//     }
+//     if(length > 60) {
+//         printf("**\n       **  ");
+//         length = 11;
+//     }
+//     if((stat & 0x0200) == 0x0200) {
+//         printf("LATE_RESP  ");
+//         length += 11;
+//     }
+//     if(length > 60) {
+//         printf("**\n       **  ");
+//         length = 11;
+//     }
+//     if((stat & 0x0080) == 0x0080) {
+//         printf("INVALID_WORD  ");
+//         length += 14;
+//     }
+//     if(length > 60) {
+//         printf("**\n       **  ");
+//         length = 11;
+//     }
+//     printf("**\n");
+// }

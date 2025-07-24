@@ -10,7 +10,6 @@ typedef struct {
 typedef struct {
     int id;
     long last_time;
-    int status;
 } DataFrame_t;
 
 typedef struct {
@@ -18,12 +17,15 @@ typedef struct {
     int op_code;
     int rate;
     char text[65];
+    short int handle;
     DataFrame_t frame;
 } Message_t;
 
 typedef struct {
-    size_t count;
-    Message_t *messages;
+    size_t count_tx;
+    size_t count_rx;
+    Message_t *messages_tx;
+    Message_t *messages_rx;
 } CommandList_t;
 
 typedef struct {

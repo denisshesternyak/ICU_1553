@@ -15,7 +15,7 @@ int command_handler(void* user, const char* section, const char* name, const cha
         return 1;
     }
 
-    if(strncmp(section, "command_", 8) == 0) {
+    if(strncmp(section, "send_command_", 13) == 0) {
         static char last_section[64] = "";
         static Message_t *current = NULL;
 
@@ -41,6 +41,7 @@ int command_handler(void* user, const char* section, const char* name, const cha
             if(!parse_int_checked(value, 1, 1000, "Rate", &current->rate)) return 0;
         } else if(strcmp(name, "Message") == 0) {
             strncpy(current->text, value, sizeof(current->text) - 1);
+            current->text[sizeof(current->text) - 1] = '\0';
         } else {
             fprintf(stderr, "Warning: unknown field '%s' in section [%s]\n", name, section);
         }

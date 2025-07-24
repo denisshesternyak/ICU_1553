@@ -1,4 +1,5 @@
-#define _POSIX_C_SOURCE 200809L
+#define _XOPEN_SOURCE   600
+#define _POSIX_C_SOURCE 200112L
 
 #include <signal.h>
 #include <unistd.h>
@@ -14,10 +15,13 @@ static const char *format_time(uint64_t usec);
 static uint64_t get_time_microseconds();
 static void print_msg(const char *dir, const int opcode, const char *text, size_t len);
 static int handle_error(int status, const char *msg);
-static int get_frameid(int rt, const char *str, int subaddr, int *frameid);
+static int create_frames(Config *config);
+static int create_frameid(int rt_addr, int dir, Message_t *msg);
 static void add_text(const char *str, usint *msgdata, size_t len);
 static int getWordCount(const char *msg);
-static void print_status_1553(usint stat);
+// static void print_status_1553(usint stat);
+static int read_msg(short int id);
+static int send_msg(int frameid);
 
 volatile sig_atomic_t stop_flag = 0;
 
@@ -27,6 +31,7 @@ void handle_sigint(int sig) {
 
 int release_module_1553() {
     if(handle >= 0) {
+        stop_flag = 1;
         Stop_Px(handle);
         Release_Module_Px(handle);
         printf("\nRelease MODULE_1553\n");
@@ -41,12 +46,9 @@ static void* transmit_1553_thread(void* arg) {
 
     Config *config = (Config*)arg;
 
-    int status, frameid;
-    usint statusword;
     int frame_executed = 0;
-
-    int opcode = 0;
-    const char *msg;
+    CommandList_t *cmd;
+    Message_t *msg;
 
     struct timespec start_time;
     clock_gettime(CLOCK_MONOTONIC, &start_time);
@@ -57,25 +59,33 @@ static void* transmit_1553_thread(void* arg) {
         long elapsed_ms = (current_time.tv_sec - start_time.tv_sec) * 1000 +
                          (current_time.tv_nsec - start_time.tv_nsec) / 1000000;
 
-        for(int i = 0; i < config->cmds.count; i++) {
-            int rate = 1000 / config->cmds.messages[i].rate;
-            long last_time = config->cmds.messages[i].frame.last_time;
+        cmd = &config->cmds;
+
+        for(int i = 0; i < cmd->count_tx; i++) {
+            msg = &cmd->messages_tx[i];
+            int rate = 1000 / msg->rate;
+            long last_time = msg->frame.last_time;
             
             if(elapsed_ms - last_time >= rate) {
-                config->cmds.messages[i].frame.status = 1;
-                config->cmds.messages[i].frame.last_time = elapsed_ms;
+                send_msg(msg->frame.id);
+                print_msg("T", msg->op_code, msg->text, strlen(msg->text));
+
+                frame_executed = 1;
+                msg->frame.last_time = elapsed_ms;
             }
         }
 
-        for(int i = 0; i < config->cmds.count; i++) {
-            if(config->cmds.messages[i].frame.status) {
-                opcode = config->cmds.messages[i].op_code;
-                msg = config->cmds.messages[i].text;
-
-                frameid = config->cmds.messages[i].frame.id;
-                config->cmds.messages[i].frame.status = 0;
+        for(int i = 0; i < cmd->count_rx; i++) {
+            msg = &cmd->messages_rx[i];
+            int rate = 1000 / msg->rate;
+            long last_time = msg->frame.last_time;
+            
+            if(elapsed_ms - last_time >= rate) {                
+                send_msg(msg->frame.id);
+                read_msg(msg->handle);
+                
                 frame_executed = 1;
-                break;
+                msg->frame.last_time = elapsed_ms;
             }
         }
 
@@ -83,22 +93,54 @@ static void* transmit_1553_thread(void* arg) {
             usleep(1000);
             continue;
         }
-        frame_executed = 0;
-
-        status = Start_Frame_Px(handle, frameid, FULLFRAME);
-        if(status < 0) { handle_error(status, "Start_Frame failure"); break; }
-
-        status = Run_BC_Px(handle, 1);
-        if(status < 0) { handle_error(status, "Run_BC failure"); break; }
-
-        print_msg("T", opcode, msg, strlen(msg));
-
-        do {
-            status = Get_Msgentry_Status_Px(handle, frameid, 0, &statusword);
-        } while ((statusword & END_OF_MSG) != END_OF_MSG);
+        frame_executed = 0;        
     }
 
     pthread_exit(NULL);
+}
+
+static int send_msg(int frameid) {
+    int status;
+    usint statusword;
+
+    status = Start_Frame_Px(handle, frameid, FULLFRAME);
+    if(status < 0) { return handle_error(status, "Start_Frame failure"); }
+
+    status = Run_BC_Px(handle, 1);
+    if(status < 0) { return handle_error(status, "Run_BC failure"); }
+
+    do {
+        status = Get_Msgentry_Status_Px(handle, frameid, 0, &statusword);
+    } while ((statusword & END_OF_MSG) != END_OF_MSG);
+
+    return 0;
+}
+
+static int read_msg(short int id) {
+    int status;
+    size_t len = 0; 
+    char data[65];
+    memset(data, 0, 65);
+    usint data_buffer[34];
+    memset(data_buffer, 0, sizeof(data_buffer));
+
+    status = Read_Message_Px(handle, id, data_buffer);
+    if(status < 0) { return handle_error(status, "Read_Message failure"); }
+
+    for (int i = 2; i < 34; i++) {
+        usint word = data_buffer[i];
+        uint8_t byte;
+        if((byte = (word >> 8) & 0xFF) == 0) break;
+        data[len++] = byte;
+        if((byte = word & 0xFF) == 0) break;
+        data[len++] = byte;
+    }
+    data[len] = '\0';
+
+    int op_code = (data_buffer[0] & 0x03E0) >> 5;
+    print_msg("R", op_code, data, len);
+    
+    return 0;
 }
 
 int init_module_1553(Config *config) {
@@ -111,6 +153,14 @@ int init_module_1553(Config *config) {
 
     handle = status;
     printf("Init MODULE_1553 success!\n");
+
+    usint cardtype;
+    status = Get_Card_Type_Px(handle, &cardtype);
+	if (status < 0)	printf ("Get_Card_Type_Px returned error: %s\n", Print_Error_Px(status));
+
+    if ((cardtype == MOD_1553_SF) || (cardtype == MOD_1760_SF)) {
+		printf("  The module is a Single-Function module (PxS),\n");
+	}
 
     status = Get_Board_Status_Px(handle);
     printf("  Board status is ");
@@ -126,23 +176,9 @@ int init_module_1553(Config *config) {
         printf("BOARD NOT READY\n");
 
     status = Set_Mode_Px(handle, BC_MODE);
-    if(status < 0) {
-        printf("Set_Mode Failure. %s\n", Print_Error_Px(status));
-        Release_Module_Px(handle);
-        exit(0);
-    }
+    if(status < 0) { return handle_error(status, "Set_Mode failure"); }
 
-    for(int i = 0; i < config->cmds.count; i++) {
-        int rt = config->device.rt_addr;
-        char *msg = config->cmds.messages[i].text;
-        int subaddr = config->cmds.messages[i].sub_address;
-        int *frameid = &config->cmds.messages[i].frame.id;
-
-        if(get_frameid(rt, msg, subaddr, frameid) != 0) {
-            perror("Failed create a message\n");
-            return 1;
-        }
-    }
+    create_frames(config);
 
     if(pthread_create(&trmt_1553_thread, NULL, transmit_1553_thread, config) != 0) {
         perror("Failed to create receive 1553 thread");
@@ -182,30 +218,58 @@ static void print_msg(const char *dir, const int opcode, const char *text, size_
         text);
 }
 
-static int get_frameid(int rt, const char *msg, int subaddr, int *frameid) {
+static int create_frames(Config *config) {
+    int rt_addr = config->device.rt_addr;
+    CommandList_t *cmd = &config->cmds;
+    Message_t *msg;
+
+    for(int i = 0; i < cmd->count_tx; i++) {
+        msg = &cmd->messages_tx[i];
+        if(create_frameid(rt_addr, RECEIVE, msg) != 0) {
+            perror("Failed create a message\n");
+            return 1;
+        }
+    }
+
+    for(int i = 0; i < cmd->count_rx; i++) {
+        msg = &cmd->messages_rx[i];
+        if(create_frameid(rt_addr, TRANSMIT, msg) != 0) {
+            perror("Failed create a message\n");
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int create_frameid(int rt_addr, int dir, Message_t *msg) {
     int status;
-    short int id;
     struct FRAME framestruct[2];
-    usint msgdata[33];
+    usint msgdata[34];
     memset(msgdata, 0, sizeof(msgdata));
     
-    size_t len = strlen(msg);
-    add_text(msg, msgdata, len);
+    if(dir == RECEIVE) {
+        size_t len = strlen(msg->text);
+        add_text(msg->text, msgdata, len);
+    }
 
-    status = Command_Word_Px(rt, RECEIVE, subaddr, getWordCount(msg), &msgdata[0]);
+    int wordcount = (dir == RECEIVE) ? getWordCount(msg->text) : 32;
+    usint cmdtype = (dir == RECEIVE) ? BC2RT : RT2BC;
+
+    status = Command_Word_Px(rt_addr, dir, msg->sub_address, wordcount, &msgdata[0]);
     if(status < 0) return handle_error(status, "Command_Word_Px failure");
 
-    status = Create_1553_Message_Px(handle, BC2RT, msgdata, &id);
+    status = Create_1553_Message_Px(handle, cmdtype, msgdata, &msg->handle);
     if(status < 0) return handle_error(status, "Create_1553_Message failure");
 
-    framestruct[0].id = id;
+    framestruct[0].id = msg->handle;
     framestruct[0].gaptime = 5000;
     framestruct[1].id = 0;
 
     int frame_id = Create_Frame_Px(handle, &framestruct[0]);
     if(frame_id < 0) return handle_error(frame_id, "Create_Frame failure");
 
-    *frameid = frame_id;
+    msg->frame.id = frame_id;
+
     return 0;
 }
 
@@ -219,7 +283,7 @@ static void add_text(const char *str, usint *msgdata, size_t len) {
 
 static int getWordCount(const char *msg) {
     size_t len = strlen(msg);
-    if(len >= 64) return 0; // 0 indicates a word count of 32.
+    if(len >= 64) len = 64;
     return (len + 1) / 2;
 }
 
@@ -231,50 +295,50 @@ static int handle_error(int status, const char *msg) {
     return status;
 }
 
-static void print_status_1553(usint stat) {
-    int length = 0;
-    if((stat & 0x8000) == 0x8000) {
-        printf("       **  END_OF_MSG  ");
-        length = 23;
-    } else {
-        printf("Invalid status - Message not yet complete\n");
-        return;
-    }
-    if((stat & 0x2000) == 0x2000) {
-        printf("MSG_ERROR  ");
-        length += 11;
-    }
-    if((stat & 0x0100) == 0x0100) {
-        printf("ME_SET  ");
-        length += 8;
-    }
-    if((stat & 0x0800) == 0x0800) {
-        printf("BAD_STATUS  ");
-        length += 12;
-    }
-    if((stat & 0x0400) == 0x0400) {
-        printf("INVALID_MSG  ");
-        length += 13;
-    }
-    if(length > 60) {
-        printf("**\n       **  ");
-        length = 11;
-    }
-    if((stat & 0x0200) == 0x0200) {
-        printf("LATE_RESP  ");
-        length += 11;
-    }
-    if(length > 60) {
-        printf("**\n       **  ");
-        length = 11;
-    }
-    if((stat & 0x0080) == 0x0080) {
-        printf("INVALID_WORD  ");
-        length += 14;
-    }
-    if(length > 60) {
-        printf("**\n       **  ");
-        length = 11;
-    }
-    printf("**\n");
-}
+// static void print_status_1553(usint stat) {
+//     int length = 0;
+//     if((stat & 0x8000) == 0x8000) {
+//         printf("       **  END_OF_MSG  ");
+//         length = 23;
+//     } else {
+//         printf("Invalid status - Message not yet complete\n");
+//         return;
+//     }
+//     if((stat & 0x2000) == 0x2000) {
+//         printf("MSG_ERROR  ");
+//         length += 11;
+//     }
+//     if((stat & 0x0100) == 0x0100) {
+//         printf("ME_SET  ");
+//         length += 8;
+//     }
+//     if((stat & 0x0800) == 0x0800) {
+//         printf("BAD_STATUS  ");
+//         length += 12;
+//     }
+//     if((stat & 0x0400) == 0x0400) {
+//         printf("INVALID_MSG  ");
+//         length += 13;
+//     }
+//     if(length > 60) {
+//         printf("**\n       **  ");
+//         length = 11;
+//     }
+//     if((stat & 0x0200) == 0x0200) {
+//         printf("LATE_RESP  ");
+//         length += 11;
+//     }
+//     if(length > 60) {
+//         printf("**\n       **  ");
+//         length = 11;
+//     }
+//     if((stat & 0x0080) == 0x0080) {
+//         printf("INVALID_WORD  ");
+//         length += 14;
+//     }
+//     if(length > 60) {
+//         printf("**\n       **  ");
+//         length = 11;
+//     }
+//     printf("**\n");
+// }

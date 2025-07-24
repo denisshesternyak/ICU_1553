@@ -1,19 +1,12 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#define BUFFER_SIZE 1024
-
-typedef struct {
-    long last_time;
-    int status;
-} DataFrame_t;
-
 typedef struct {
     int sub_address;
     int op_code;
     int rate;
-    char text[BUFFER_SIZE];
-    DataFrame_t frame;
+    char text[65];
+    long last_time;
 } Message_t;
 
 typedef struct {

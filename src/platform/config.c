@@ -41,20 +41,20 @@ int command_handler(void* user, const char* section, const char* name, const cha
         return 1;
     }
 
-    if(strncmp(section, "command_", 8) == 0) {
+    if(strncmp(section, "send_command_", 13) == 0) {
         static char last_section[64] = "";
         static Message_t *current = NULL;
 
         if(strcmp(last_section, section) != 0) {
-            Message_t *new_list = realloc(config->cmds.messages, sizeof(Message_t) * (config->cmds.count + 1));
+            Message_t *new_list = realloc(config->cmds.messages_tx, sizeof(Message_t) * (config->cmds.count_tx + 1));
             if(!new_list) {
                 fprintf(stderr, "Memory allocation failed for messages\n");
                 exit(EXIT_FAILURE);
             }
-            config->cmds.messages = new_list;
-            current = &config->cmds.messages[config->cmds.count];
+            config->cmds.messages_tx = new_list;
+            current = &config->cmds.messages_tx[config->cmds.count_tx];
             memset(current, 0, sizeof(Message_t));
-            config->cmds.count++;
+            config->cmds.count_tx++;
             strncpy(last_section, section, sizeof(last_section) - 1);
             last_section[sizeof(last_section) - 1] = '\0';
         }
@@ -67,6 +67,38 @@ int command_handler(void* user, const char* section, const char* name, const cha
             if(!parse_int_checked(value, 1, 1000, "Rate", &current->rate)) return 0;
         } else if(strcmp(name, "Message") == 0) {
             strncpy(current->text, value, sizeof(current->text) - 1);
+            current->text[sizeof(current->text) - 1] = '\0';
+        } else {
+            fprintf(stderr, "Warning: unknown field '%s' in section [%s]\n", name, section);
+        }
+
+        return 1;
+    }
+
+    if(strncmp(section, "get_command_", 12) == 0) {
+        static char last_section[64] = "";
+        static Message_t *current = NULL;
+
+        if(strcmp(last_section, section) != 0) {
+            Message_t *new_list = realloc(config->cmds.messages_rx, sizeof(Message_t) * (config->cmds.count_rx + 1));
+            if(!new_list) {
+                fprintf(stderr, "Memory allocation failed for messages\n");
+                exit(EXIT_FAILURE);
+            }
+            config->cmds.messages_rx = new_list;
+            current = &config->cmds.messages_rx[config->cmds.count_rx];
+            memset(current, 0, sizeof(Message_t));
+            config->cmds.count_rx++;
+            strncpy(last_section, section, sizeof(last_section) - 1);
+            last_section[sizeof(last_section) - 1] = '\0';
+        }
+
+        if(strcmp(name, "SubAddress") == 0) {
+            if(!parse_int_checked(value, 0, 255, "SubAddress", &current->sub_address)) return 0;
+        } else if(strcmp(name, "OpCode") == 0) {
+            if(!parse_int_checked(value, 0, 255, "OpCode", &current->op_code)) return 0;
+        } else if(strcmp(name, "Rate") == 0) {
+            if(!parse_int_checked(value, 1, 1000, "Rate", &current->rate)) return 0;
         } else {
             fprintf(stderr, "Warning: unknown field '%s' in section [%s]\n", name, section);
         }

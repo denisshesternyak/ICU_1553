@@ -1,4 +1,5 @@
-#define _POSIX_C_SOURCE 200809L
+#define _XOPEN_SOURCE   600
+#define _POSIX_C_SOURCE 200112L
 
 #include <stddef.h>
 #include <sys/time.h>
@@ -28,6 +29,7 @@ pthread_t trmt_client_thread;
 
 volatile sig_atomic_t stop_flag = 0;
 
+static ssize_t send_data(const char *message, size_t len);
 static void parse_buffer(const char *buffer);
 static void print_msg(uint32_t opcode, const char *from, const char *to, const char *text, uint32_t len);
 static void *receive_data(void *arg);
@@ -129,6 +131,19 @@ int init_socket(Config *config) {
     return 0;
 }
 
+static void data_packing(MsgHeader1553_t *hdr, int opcode, const char *msg, size_t len) {
+    char message[BUFFER_SIZE];
+    memset(message, 0, BUFFER_SIZE);
+
+    create_header(opcode, msg, len, hdr);
+    memcpy(message, hdr, HEADER_SIZE);
+    memcpy(message+HEADER_SIZE, msg, len);
+
+    if(send_data(message, hdr->msg_length) >= 0) {
+        print_msg(opcode, "ICU", "IRST", msg, len);
+    }
+}
+
 static ssize_t send_data(const char *message, size_t len) {
     return sendto(sockfd, message, len, 0, 
                          (struct sockaddr *)&server_addr, sizeof(server_addr));
@@ -171,16 +186,13 @@ static void *receive_data(void *arg) {
 
 static void* transmit_data(void* arg) {
     Config *config = (Config*)arg;
+    int frame_executed = 0;
 
     struct timespec start_time;
     clock_gettime(CLOCK_MONOTONIC, &start_time);
 
-    int opcode = 0;
-    const char *msg;
-    size_t len;
-    int frame_executed = 0;
-
     printf("  Running the transmit SOCKET thread...\n");
+    printf("\n%-14s %-10s %-10s %-8s %-6s %-s\n", "Time", "From", "To", "OpCode", "Len", "Message");
 
     while (!stop_flag) {
         struct timespec current_time;
@@ -188,25 +200,17 @@ static void* transmit_data(void* arg) {
         long elapsed_ms = (current_time.tv_sec - start_time.tv_sec) * 1000 +
                          (current_time.tv_nsec - start_time.tv_nsec) / 1000000;
 
-        for(int i = 0; i < config->cmds.count; i++) {
-            int rate = 1000 / config->cmds.messages[i].rate;
-            long last_time = config->cmds.messages[i].frame.last_time;
+        CommandList_t *cmd = &config->cmds;
+        for(int i = 0; i < cmd->count_tx; i++) {
+            Message_t *msg = &cmd->messages_tx[i];
+            int rate = 1000 / msg->rate;
+            long last_time = msg->last_time;
             
             if(elapsed_ms - last_time >= rate) {
-                config->cmds.messages[i].frame.status = 1;
-                config->cmds.messages[i].frame.last_time = elapsed_ms;
-            }
-        }
-
-        for(int i = 0; i < config->cmds.count; i++) {
-            if(config->cmds.messages[i].frame.status) {
-                opcode = config->cmds.messages[i].op_code;
-                msg = config->cmds.messages[i].text;
-                len = strlen(msg);
-
-                config->cmds.messages[i].frame.status = 0;
+                MsgHeader1553_t header;
+                data_packing(&header, msg->op_code, msg->text, strlen(msg->text));
+                msg->last_time = elapsed_ms;
                 frame_executed = 1;
-                break;
             }
         }
 
@@ -215,17 +219,6 @@ static void* transmit_data(void* arg) {
             continue;
         }
         frame_executed = 0;
-
-        char message[BUFFER_SIZE];
-        memset(message, 0, BUFFER_SIZE);
-
-        create_header(opcode, msg, len, &header);
-        memcpy(message, &header, HEADER_SIZE);
-        memcpy(message+HEADER_SIZE, msg, len);
-
-        if(send_data(message, header.msg_length) >= 0) {
-            print_msg(opcode, "ICU", "IRST", msg, len);
-        }
     }
 
     pthread_exit(NULL);
@@ -241,7 +234,7 @@ static void parse_buffer(const char *buffer) {
         if(header.msg_opcode == ICU_STATUS_ACK_OPCODE) {
             print_msg(header.msg_opcode, "IRST", "ICU", msg, len);
         } else {
-            //SEND TO PLATFORM
+            load_datablk(header.msg_opcode, msg, len);
             print_msg(header.msg_opcode, "IRST", "PLATFORM", msg, len);
         }
     }    

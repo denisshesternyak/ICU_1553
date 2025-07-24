@@ -19,7 +19,6 @@ int init_module_1553(Config *config);
 // Release the 1553 module
 int release_module_1553();
 
-// Transmit data as Bus Controller (BC)
-int transmit_1553(const char *msg, size_t len, int rt_addr);
+int load_datablk(int blknum, const char *text, size_t len);
 
 #endif // MIL_STD_1553_H

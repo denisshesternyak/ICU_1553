@@ -47,7 +47,8 @@ int main(int argc, char **argv) {
     pthread_join(trmt_1553_thread, NULL);
     release_module_1553();
 
-    free(config.cmds.messages);
+    free(config.cmds.messages_tx);
+    free(config.cmds.messages_rx);
     printf("Exit.\n");
     return 0;
 }
