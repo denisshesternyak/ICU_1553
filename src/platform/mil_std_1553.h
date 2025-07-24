@@ -10,7 +10,7 @@
 #include "galahad_px.h"
 #include "config.h"
 
-extern pthread_t trmt_1553_thread;
+extern pthread_t handle_1553_thread;
 
 void handle_sigint(int sig);
 

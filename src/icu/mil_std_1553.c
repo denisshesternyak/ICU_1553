@@ -4,13 +4,16 @@
 #include "mil_std_1553.h"
 
 static int handle = -1;
-pthread_t recv_1553_thread;
+pthread_t handle_1553_thread;
+static int isThreadRun;
 
-static void* receive_1553_thread(void* arg);
-static void add_text(const char *str, usint *msgdata, size_t len);
-// static int getWordCount(const char *msg);
+static void* rt_1553_thread(void* arg);
+static void add_text(usint *msgdata, const char *text, size_t len);
 static int handle_error(int status, const char *msg);
-//static void print_status_1553(usint stat);
+
+int getIsThreadRun() {
+    return isThreadRun;
+}
 
 int release_module_1553() {
     if(handle >= 0) {
@@ -38,7 +41,7 @@ int init_module_1553(Config *config) {
     status = Get_Card_Type_Px(handle, &cardtype);
 	if (status < 0)	printf ("Get_Card_Type_Px returned error: %s\n", Print_Error_Px(status));
 
-    if ((cardtype == MOD_1553_SF) || (cardtype == MOD_1760_SF)) {
+    if ((cardtype == MOD_1553_SF)) {
 		printf("  The module is a Single-Function module (PxS),\n");
 	}
 
@@ -55,7 +58,7 @@ int init_module_1553(Config *config) {
     else
         printf("BOARD NOT READY\n");
 
-    if(pthread_create(&recv_1553_thread, NULL, receive_1553_thread, config) != 0) {
+    if(pthread_create(&handle_1553_thread, NULL, rt_1553_thread, config) != 0) {
         perror("Failed to create receive 1553 thread");
         release_module_1553(handle);
         return -1;
@@ -65,24 +68,19 @@ int init_module_1553(Config *config) {
 }
 
 int load_datablk(int blknum, const char *text, size_t len) {
-    if(len > 64) { printf("Load_Datablk failure: length of the message > 64\n"); return -1; }
-
     int status;
     usint msgdata[32];
     memset(msgdata, 0, sizeof(msgdata));
 
-    for (int i = 0; i < len; i += 2) {
-        unsigned char c1 = (i < len) ? text[i] : 0;
-        unsigned char c2 = (i + 1 < len) ? text[i + 1] : 0;
-        msgdata[i / 2] = (c1 << 8) | c2;
-    }
+    add_text(msgdata, text, len);
 
     status = Load_Datablk_Px(handle, blknum, msgdata);
-    if(status < 0) { handle_error(status, "Load_Datablk_Px failure");}
-    return status;
+    if(status < 0) { return handle_error(status, "Load_Datablk_Px failure");}
+
+    return 0;
 }
 
-static void* receive_1553_thread(void* arg) {
+static void* rt_1553_thread(void* arg) {
     Config *config = (Config*)arg;
 
     int rt_addr = config->device.rt_addr;
@@ -114,6 +112,7 @@ static void* receive_1553_thread(void* arg) {
     status = Run_RT_Px(handle);
     if(status < 0) { handle_error(status, "Run_RT failure"); }    
 
+    isThreadRun = 1;
     printf("  Running the receive MODULE_1553 thread...\n");
 
     struct CMDENTRYRT rtcmd;
@@ -137,12 +136,6 @@ static void* receive_1553_thread(void* arg) {
 
             char received_text[64] = {0};
             uint32_t len = 0;
-            // for (int j = 0; j < wordCount && len < 64; j++) {
-            //     unsigned char c1 = (msgdata[j] >> 8) & 0xFF;
-            //     unsigned char c2 = msgdata[j] & 0xFF;
-            //     if(c1 >= 32 && c1 <= 126) received_text[len++] = c1;
-            //     if(c2 >= 32 && c2 <= 126 && len < 64) received_text[len++] = c2;
-            // }
 
             for (int j = 0; j < wordCount && len < 64; j++) {
                 usint word = msgdata[j];
@@ -162,19 +155,15 @@ static void* receive_1553_thread(void* arg) {
     pthread_exit(NULL);
 }
 
-static void add_text(const char *str, usint *msgdata, size_t len) {
+static void add_text(usint *msgdata, const char *text, size_t len) {
+    if(len > 64) { printf("add_text failure: length of the message > 64\n"); return; }
+
     for (int i = 0; i < len; i += 2) {
-        unsigned char c1 = (i < len) ? str[i] : 0;
-        unsigned char c2 = (i + 1 < len) ? str[i + 1] : 0;
-        msgdata[i / 2 + 1] = (c1 << 8) | c2;
+        unsigned char c1 = (i < len) ? text[i] : 0;
+        unsigned char c2 = (i + 1 < len) ? text[i + 1] : 0;
+        msgdata[i / 2] = (c1 << 8) | c2;
     }
 }
-
-// static int getWordCount(const char *msg) {
-//     size_t len = strlen(msg);
-//     if(len >= 64) len = 64;
-//     return (len + 1) / 2;
-// }
 
 static int handle_error(int status, const char *msg) {
     char errstr[255];
@@ -183,51 +172,3 @@ static int handle_error(int status, const char *msg) {
     Release_Module_Px(handle);
     return status;
 }
-
-// static void print_status_1553(usint stat) {
-//     int length = 0;
-//     if((stat & 0x8000) == 0x8000) {
-//         printf("       **  END_OF_MSG  ");
-//         length = 23;
-//     } else {
-//         printf("Invalid status - Message not yet complete\n");
-//         return;
-//     }
-//     if((stat & 0x2000) == 0x2000) {
-//         printf("MSG_ERROR  ");
-//         length += 11;
-//     }
-//     if((stat & 0x0100) == 0x0100) {
-//         printf("ME_SET  ");
-//         length += 8;
-//     }
-//     if((stat & 0x0800) == 0x0800) {
-//         printf("BAD_STATUS  ");
-//         length += 12;
-//     }
-//     if((stat & 0x0400) == 0x0400) {
-//         printf("INVALID_MSG  ");
-//         length += 13;
-//     }
-//     if(length > 60) {
-//         printf("**\n       **  ");
-//         length = 11;
-//     }
-//     if((stat & 0x0200) == 0x0200) {
-//         printf("LATE_RESP  ");
-//         length += 11;
-//     }
-//     if(length > 60) {
-//         printf("**\n       **  ");
-//         length = 11;
-//     }
-//     if((stat & 0x0080) == 0x0080) {
-//         printf("INVALID_WORD  ");
-//         length += 14;
-//     }
-//     if(length > 60) {
-//         printf("**\n       **  ");
-//         length = 11;
-//     }
-//     printf("**\n");
-// }

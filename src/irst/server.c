@@ -21,21 +21,22 @@
 
 #define BUFFER_SIZE 1024
 
-pthread_t trmt_client_thread;
-pthread_t recv_client_thread;
+pthread_t handle_txclient_thread;
+pthread_t handle_rxclient_thread;
 struct sockaddr_in client_addr;
 socklen_t addr_len;
 char client_ip[INET_ADDRSTRLEN];
 
-static void parse_buffer(const char *buffer);
 static void *receive_data(void *arg);
 static void *transmit_data(void *arg);
-static int send_data(const char *msg, size_t len);
+static void parse_buffer(const char *buffer);
 static void data_packing(MsgHeader1553_t *hdr, int opcode, const char *msg, size_t len);
 static void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr);
-static void print_msg(uint32_t opcode, const char *dir, const char *text, uint32_t len);
+static int send_data(const char *msg, size_t len);
+static uint64_t get_time_microseconds();
+static const char *format_time(uint64_t usec);
+static void print_msg(PrintMsg_t *print);
 static uint32_t crc32(const void *data, size_t length);
-// static void print_header(const MsgHeader1553_t *hdr);
 
 static int sockfd = -1;
 
@@ -55,9 +56,46 @@ void close_socket() {
     printf("\nClose SOCKET\n");
 }
 
-static void *receive_data(void *arg) {
-    //Config *config = (Config*)arg;
+int init_socket(Config *config) {
+    struct sockaddr_in server_addr;
 
+    if((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("Socket creation failed");
+        return -1;
+    }
+
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(config->port);
+
+    if(bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("Bind failed");
+        close(sockfd);
+        return -1;
+    }
+
+    addr_len = sizeof(client_addr);
+
+    printf("Init SOCKET success!\n");
+    printf("Server listening on port %d...\n", config->port);
+
+    if(pthread_create(&handle_rxclient_thread, NULL, receive_data, NULL) != 0) {
+        perror("Thread creation failed");
+        close(sockfd);
+        return -1;
+    }
+
+    if(pthread_create(&handle_txclient_thread, NULL, transmit_data, config) != 0) {
+        perror("Thread creation failed");
+        close(sockfd);
+        return -1;
+    }
+
+    return 0;
+}
+
+static void *receive_data(void *arg) {
     char buffer[BUFFER_SIZE];
 
     printf("  Running the receive SOCKET thread...\n");
@@ -82,7 +120,6 @@ static void *receive_data(void *arg) {
 
     return NULL;
 }
-
 
 static void* transmit_data(void* arg) {
     Config *config = (Config*)arg;
@@ -125,44 +162,6 @@ static void* transmit_data(void* arg) {
     pthread_exit(NULL);
 }
 
-int init_socket(Config *config) {
-    struct sockaddr_in server_addr;
-
-    if((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        perror("Socket creation failed");
-        return -1;
-    }
-
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(config->port);
-
-    if(bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Bind failed");
-        close(sockfd);
-        return -1;
-    }
-
-    addr_len = sizeof(client_addr);
-
-    printf("Init SOCKET success!\n");
-
-    if(pthread_create(&recv_client_thread, NULL, receive_data, config) != 0) {
-        perror("Thread creation failed");
-        close(sockfd);
-        return -1;
-    }
-
-    if(pthread_create(&trmt_client_thread, NULL, transmit_data, config) != 0) {
-        perror("Thread creation failed");
-        close(sockfd);
-        return -1;
-    }
-
-    return 0;
-}
-
 static void parse_buffer(const char *buffer) {
     MsgHeader1553_t header;
     memcpy(&header, buffer, sizeof(MsgHeader1553_t));
@@ -171,7 +170,14 @@ static void parse_buffer(const char *buffer) {
     size_t len = header.msg_length-HEADER_SIZE;
 
     if(crc32(msg, len) == header.payload_crc32) {
-        print_msg(header.msg_opcode, "R", msg, len);
+        PrintMsg_t print = { 
+            .dir = "R", 
+            .opcode=header.msg_opcode, 
+            .text=msg, 
+            .len=len 
+        };
+
+        print_msg(&print);
 
         if(header.msg_opcode == ICU_STATUS_OPCODE) {
             data_packing(&header, ICU_STATUS_ACK_OPCODE, ICU_STATUS_ACK_MSG, strlen(ICU_STATUS_ACK_MSG));
@@ -188,8 +194,26 @@ static void data_packing(MsgHeader1553_t *hdr, int opcode, const char *msg, size
     memcpy(message+HEADER_SIZE, msg, len);
 
     if(send_data(message, hdr->msg_length) >= 0) {
-        print_msg(hdr->msg_opcode, "T", msg, len);
+        PrintMsg_t print = { 
+            .dir = "T", 
+            .opcode=hdr->msg_opcode, 
+            .text=msg, 
+            .len=len 
+        };
+
+        print_msg(&print);
     }
+}
+
+static void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr) {
+    static uint32_t msg_seq_counter = 1;
+    hdr->msg_opcode = subaddr;
+    hdr->msg_length = len + HEADER_SIZE;
+    hdr->msg_seq_number = msg_seq_counter++;
+    hdr->payload_crc32 = crc32(text, len);
+    hdr->send_time = 0;
+    hdr->receive_time = get_time_microseconds();
+    hdr->send_time = get_time_microseconds();
 }
 
 static int send_data(const char *msg, size_t len) {
@@ -217,25 +241,13 @@ static const char *format_time(uint64_t usec) {
     return buf;
 }
 
-static void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr) {
-    static uint32_t msg_seq_counter = 1;
-    hdr->msg_opcode = subaddr;
-    hdr->msg_length = len + HEADER_SIZE;
-    hdr->msg_seq_number = msg_seq_counter++;
-    hdr->payload_crc32 = crc32(text, len);
-    hdr->send_time = 0;
-    hdr->receive_time = get_time_microseconds();
-    hdr->send_time = get_time_microseconds();
-}
-
-
-static void print_msg(uint32_t opcode, const char *dir, const char *text, uint32_t len) {
-    printf("%-14s %-4s 0x%-6.2X %-6u %-s\n",
+static void print_msg(PrintMsg_t *print) {
+        printf("%-14s %-4s 0x%-6.2X %-6u %-s\n",
         format_time(get_time_microseconds()),
-        dir,
-        opcode,
-        len,
-        text);
+        print->dir,
+        print->opcode,
+        print->len,
+        print->text);
 }
 
 static uint32_t crc32(const void *data, size_t length) {
@@ -253,15 +265,3 @@ static uint32_t crc32(const void *data, size_t length) {
     }
     return ~crc;
 }
-
-// static void print_header(const MsgHeader1553_t *hdr) {
-//     printf("HEADER STRUCTURE:\n");
-//     printf("  Sync Word      : 0x%08X\n", hdr->sync_word);
-//     printf("  Msg OpCode     : 0x%08X\n", hdr->msg_opcode);
-//     printf("  Msg Length     : %u bytes\n", hdr->msg_length);
-//     printf("  Msg Sequence # : %u\n", hdr->msg_seq_number);
-//     printf("  CRC-32         : 0x%08X\n", hdr->payload_crc32);
-//     printf("  Send Time      : %lu us\n", (uint64_t)hdr->send_time);
-//     printf("  Receive Time   : %lu us\n", (uint64_t)hdr->receive_time);
-//     printf("  Spare          : %lu\n", (uint64_t)hdr->spare);
-// }

@@ -9,7 +9,7 @@
 #include "galahad_px.h"
 #include "config.h"
 
-extern pthread_t recv_1553_thread;
+extern pthread_t handle_1553_thread;
 
 void handle_sigint(int sig);
 
@@ -20,5 +20,7 @@ int init_module_1553(Config *config);
 int release_module_1553();
 
 int load_datablk(int blknum, const char *text, size_t len);
+
+int getIsThreadRun();
 
 #endif // MIL_STD_1553_H

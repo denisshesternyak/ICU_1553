@@ -24,57 +24,25 @@ static int sockfd = -1;
 static struct sockaddr_in server_addr;
 static MsgHeader1553_t header;
 
-pthread_t recv_client_thread;
-pthread_t trmt_client_thread;
+pthread_t handle_rxclient_thread;
+pthread_t handle_txclient_thread;
 
 volatile sig_atomic_t stop_flag = 0;
 
+static uint32_t crc32(const void *data, size_t length);
+static uint64_t get_time_microseconds();
+static const char *format_time(uint64_t usec);
+static void data_packing(MsgHeader1553_t *hdr, int opcode, const char *msg, size_t len);
 static ssize_t send_data(const char *message, size_t len);
-static void parse_buffer(const char *buffer);
-static void print_msg(uint32_t opcode, const char *from, const char *to, const char *text, uint32_t len);
 static void *receive_data(void *arg);
-static void* transmit_data(void* arg);
-void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr);
+static void *transmit_data(void* arg);
+static void parse_buffer(const char *buffer);
+static void print_msg(PrintMsg_t *print);
+static void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr);
 
 void handle_sigint(int sig) {
     stop_flag = 1;
     close_socket();
-}
-
-uint32_t crc32(const void *data, size_t length) {
-    const uint8_t *bytes = (const uint8_t *)data;
-    uint32_t crc = 0xFFFFFFFF;
-
-    for (size_t i = 0; i < length; i++) {
-        crc ^= bytes[i];
-        for (int j = 0; j < 8; j++) {
-            if(crc & 1)
-                crc = (crc >> 1) ^ 0xEDB88320;
-            else
-                crc >>= 1;
-        }
-    }
-    return ~crc;
-}
-
-static uint64_t get_time_microseconds() {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (uint64_t)tv.tv_sec * 1000000 + tv.tv_usec;
-}
-
-static const char *format_time(uint64_t usec) {
-    static char buf[20];
-    time_t seconds = usec / 1000000;
-    struct tm *tm_info = localtime(&seconds);
-    int millisec = (usec % 1000000) / 1000;
-
-    snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%03d",
-             tm_info->tm_hour,
-             tm_info->tm_min,
-             tm_info->tm_sec,
-             millisec);
-    return buf;
 }
 
 void close_socket() {
@@ -116,19 +84,87 @@ int init_socket(Config *config) {
 
     printf("Init SOCKET success!\n");
 
-    if(pthread_create(&recv_client_thread, NULL, receive_data, config) != 0) {
+    if(pthread_create(&handle_rxclient_thread, NULL, receive_data, config) != 0) {
         perror("Thread creation failed");
         close(sockfd);
         return -1;
     }
 
-    if(pthread_create(&trmt_client_thread, NULL, transmit_data, config) != 0) {
+    if(pthread_create(&handle_txclient_thread, NULL, transmit_data, config) != 0) {
         perror("Thread creation failed");
         close(sockfd);
         return -1;
     }
 
     return 0;
+}
+
+void handle_received_data(uint32_t subaddr, const char *text, uint32_t len) {
+    static uint32_t msg_seq_counter = 1;
+
+    header.msg_opcode = subaddr;
+    header.msg_length = len + HEADER_SIZE;
+    header.msg_seq_number = msg_seq_counter++;
+    header.payload_crc32 = crc32(text, len);
+    header.send_time = 0;
+    header.receive_time = get_time_microseconds();
+
+    PrintMsg_t print = { 
+        .from = "PLATFORM", 
+        .to="IRST", 
+        .opcode=header.msg_opcode, 
+        .text=text, 
+        .len=len 
+    };
+
+    print_msg(&print);
+
+    char message[BUFFER_SIZE];
+    memset(message, 0, BUFFER_SIZE);
+
+    header.send_time = get_time_microseconds();
+    memcpy(message, &header, HEADER_SIZE);
+    memcpy(message+HEADER_SIZE, text, len);
+
+    if(send_data(message, header.msg_length) < 0) {
+        perror("Failed to send the message");
+    }
+}
+
+static uint32_t crc32(const void *data, size_t length) {
+    const uint8_t *bytes = (const uint8_t *)data;
+    uint32_t crc = 0xFFFFFFFF;
+
+    for (size_t i = 0; i < length; i++) {
+        crc ^= bytes[i];
+        for (int j = 0; j < 8; j++) {
+            if(crc & 1)
+                crc = (crc >> 1) ^ 0xEDB88320;
+            else
+                crc >>= 1;
+        }
+    }
+    return ~crc;
+}
+
+static uint64_t get_time_microseconds() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (uint64_t)tv.tv_sec * 1000000 + tv.tv_usec;
+}
+
+static const char *format_time(uint64_t usec) {
+    static char buf[20];
+    time_t seconds = usec / 1000000;
+    struct tm *tm_info = localtime(&seconds);
+    int millisec = (usec % 1000000) / 1000;
+
+    snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%03d",
+             tm_info->tm_hour,
+             tm_info->tm_min,
+             tm_info->tm_sec,
+             millisec);
+    return buf;
 }
 
 static void data_packing(MsgHeader1553_t *hdr, int opcode, const char *msg, size_t len) {
@@ -140,7 +176,14 @@ static void data_packing(MsgHeader1553_t *hdr, int opcode, const char *msg, size
     memcpy(message+HEADER_SIZE, msg, len);
 
     if(send_data(message, hdr->msg_length) >= 0) {
-        print_msg(opcode, "ICU", "IRST", msg, len);
+        PrintMsg_t print = { 
+            .from = "ICU", 
+            .to="IRST", 
+            .opcode=opcode, 
+            .text=msg, 
+            .len=len 
+        };
+        print_msg(&print);
     }
 }
 
@@ -176,7 +219,6 @@ static void *receive_data(void *arg) {
         buffer[received] = '\0';
         char from_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &from_addr.sin_addr, from_ip, INET_ADDRSTRLEN);
-        //printf("Received from %s:%d: %s\n", from_ip, ntohs(from_addr.sin_port), buffer);
 
         parse_buffer(buffer);
     }
@@ -231,50 +273,36 @@ static void parse_buffer(const char *buffer) {
     size_t len = header.msg_length-HEADER_SIZE;
 
     if(crc32(msg, len) == header.payload_crc32) {
+        PrintMsg_t print = { 
+            .from = "IRST", 
+            .opcode=header.msg_opcode, 
+            .text=msg, 
+            .len=len 
+        };
+
         if(header.msg_opcode == ICU_STATUS_ACK_OPCODE) {
-            print_msg(header.msg_opcode, "IRST", "ICU", msg, len);
+            print.to = "ICU";
+            print_msg(&print);
         } else {
+            if(!getIsThreadRun()) return;
             load_datablk(header.msg_opcode, msg, len);
-            print_msg(header.msg_opcode, "IRST", "PLATFORM", msg, len);
+            print.to = "PLATFORM";
+            print_msg(&print);
         }
     }    
 }
 
-static void print_msg(uint32_t opcode, const char *from, const char *to, const char *text, uint32_t len) {
+static void print_msg(PrintMsg_t *print) {
     printf("%-14s %-10s %-10s 0x%-6.2X %-6u %-s\n",
         format_time(get_time_microseconds()),
-        from,
-        to,
-        opcode,
-        len,
-        text);
+        print->from,
+        print->to,
+        print->opcode,
+        print->len,
+        print->text);
 }
 
-void handle_received_data(uint32_t subaddr, const char *text, uint32_t len) {
-    static uint32_t msg_seq_counter = 1;
-
-    header.msg_opcode = subaddr;
-    header.msg_length = len + HEADER_SIZE;
-    header.msg_seq_number = msg_seq_counter++;
-    header.payload_crc32 = crc32(text, len);
-    header.send_time = 0;
-    header.receive_time = get_time_microseconds();
-
-    print_msg(subaddr, "PLATFORM", "IRST", text, len);
-
-    char message[BUFFER_SIZE];
-    memset(message, 0, BUFFER_SIZE);
-
-    header.send_time = get_time_microseconds();
-    memcpy(message, &header, HEADER_SIZE);
-    memcpy(message+HEADER_SIZE, text, len);
-
-    if(send_data(message, header.msg_length) < 0) {
-        perror("Failed to send the message");
-    }
-}
-
-void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr) {
+static void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr) {
     static uint32_t msg_seq_counter = 1;
     hdr->msg_opcode = subaddr;
     hdr->msg_length = len + HEADER_SIZE;

@@ -22,13 +22,13 @@ int main() {
         return 1;
     }
 
-    printf("Server listening on port %d...\n", config.port);
-
     signal(SIGINT, handle_sigint);
 
-    pthread_join(recv_client_thread, NULL);  
-    
+    pthread_join(handle_rxclient_thread, NULL);  
+    pthread_join(handle_txclient_thread, NULL);  
+
     free(config.cmds.messages);
+
     printf("Exit.\n");
     return 0;
 }

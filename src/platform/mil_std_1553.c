@@ -7,22 +7,19 @@
 #include "mil_std_1553.h"
 #include "config.h"
 
-static int handle = -1;
-pthread_t trmt_1553_thread;
-
-static void* transmit_1553_thread(void* arg);
+static void* bc_1553_thread(void* arg);
+static int send_msg(int frameid);
+static int read_msg(short int id);
 static const char *format_time(uint64_t usec);
 static uint64_t get_time_microseconds();
 static void print_msg(const char *dir, const int opcode, const char *text, size_t len);
-static int handle_error(int status, const char *msg);
 static int create_frames(Config *config);
 static int create_frameid(int rt_addr, int dir, Message_t *msg);
 static void add_text(const char *str, usint *msgdata, size_t len);
-static int getWordCount(const char *msg);
-// static void print_status_1553(usint stat);
-static int read_msg(short int id);
-static int send_msg(int frameid);
+static int handle_error(int status, const char *msg);
 
+static int handle = -1;
+pthread_t handle_1553_thread;
 volatile sig_atomic_t stop_flag = 0;
 
 void handle_sigint(int sig) {
@@ -40,10 +37,53 @@ int release_module_1553() {
     return 0;
 }
 
-static void* transmit_1553_thread(void* arg) {
-    printf("  Running the transmit MODULE_1553 thread...\n");
-    printf("\n%-14s %-4s %-8s %-6s %-s\n", "Time", "Dir", "OpCode", "Len", "Message");
+int init_module_1553(Config *config) {
+    usint device = (usint)config->device.device_number;
+    usint module = (usint)config->device.module_number;
+    int status;
 
+    status = Init_Module_Px(device, module);
+    if(status < 0) { return handle_error(status, "Init_Module_Px failure"); }
+
+    handle = status;
+    printf("Init MODULE_1553 success!\n");
+
+    usint cardtype;
+    status = Get_Card_Type_Px(handle, &cardtype);
+    if(status < 0) { return handle_error(status, "Get_Card_Type_Px failure"); }
+
+    if ((cardtype == MOD_1553_SF)) {
+		printf("  The module is a Single-Function module (PxS),\n");
+	}
+
+    status = Get_Board_Status_Px(handle);
+    printf("  Board status is ");
+    if(status & SELF_TEST_OK)
+        printf("SELF TEST OK  ");
+    if(status & RAM_OK)
+        printf("RAM OK  ");
+    if(status & TIMERS_OK)
+        printf("TIMERS OK  ");
+    if(status & BOARD_READY)
+        printf("BOARD READY\n");
+    else
+        printf("BOARD NOT READY\n");
+
+    status = Set_Mode_Px(handle, BC_MODE);
+    if(status < 0) { return handle_error(status, "Set_Mode failure"); }
+
+    create_frames(config);
+
+    if(pthread_create(&handle_1553_thread, NULL, bc_1553_thread, config) != 0) {
+        perror("Failed to create receive 1553 thread");
+        release_module_1553(handle);
+        return -1;
+    }
+
+    return 0;
+}
+
+static void* bc_1553_thread(void* arg) {
     Config *config = (Config*)arg;
 
     int frame_executed = 0;
@@ -52,6 +92,9 @@ static void* transmit_1553_thread(void* arg) {
 
     struct timespec start_time;
     clock_gettime(CLOCK_MONOTONIC, &start_time);
+
+    printf("  Running the transmit MODULE_1553 thread...\n");
+    printf("\n%-14s %-4s %-8s %-6s %-s\n", "Time", "Dir", "OpCode", "Len", "Message");
 
     while (!stop_flag) {
         struct timespec current_time;
@@ -143,52 +186,6 @@ static int read_msg(short int id) {
     return 0;
 }
 
-int init_module_1553(Config *config) {
-    usint device = (usint)config->device.device_number;
-    usint module = (usint)config->device.module_number;
-    int status;
-
-    status = Init_Module_Px(device, module);
-    if(status < 0) { return handle_error(status, "Init_Module_Px failure"); }
-
-    handle = status;
-    printf("Init MODULE_1553 success!\n");
-
-    usint cardtype;
-    status = Get_Card_Type_Px(handle, &cardtype);
-	if (status < 0)	printf ("Get_Card_Type_Px returned error: %s\n", Print_Error_Px(status));
-
-    if ((cardtype == MOD_1553_SF) || (cardtype == MOD_1760_SF)) {
-		printf("  The module is a Single-Function module (PxS),\n");
-	}
-
-    status = Get_Board_Status_Px(handle);
-    printf("  Board status is ");
-    if(status & SELF_TEST_OK)
-        printf("SELF TEST OK  ");
-    if(status & RAM_OK)
-        printf("RAM OK  ");
-    if(status & TIMERS_OK)
-        printf("TIMERS OK  ");
-    if(status & BOARD_READY)
-        printf("BOARD READY\n");
-    else
-        printf("BOARD NOT READY\n");
-
-    status = Set_Mode_Px(handle, BC_MODE);
-    if(status < 0) { return handle_error(status, "Set_Mode failure"); }
-
-    create_frames(config);
-
-    if(pthread_create(&trmt_1553_thread, NULL, transmit_1553_thread, config) != 0) {
-        perror("Failed to create receive 1553 thread");
-        release_module_1553(handle);
-        return 1;
-    }
-
-    return 0;
-}
-
 static const char *format_time(uint64_t usec) {
     static char buf[20];
     time_t seconds = usec / 1000000;
@@ -225,35 +222,39 @@ static int create_frames(Config *config) {
 
     for(int i = 0; i < cmd->count_tx; i++) {
         msg = &cmd->messages_tx[i];
-        if(create_frameid(rt_addr, RECEIVE, msg) != 0) {
-            perror("Failed create a message\n");
-            return 1;
-        }
+        if(create_frameid(rt_addr, RECEIVE, msg) != 0) { goto end; }
     }
 
     for(int i = 0; i < cmd->count_rx; i++) {
         msg = &cmd->messages_rx[i];
-        if(create_frameid(rt_addr, TRANSMIT, msg) != 0) {
-            perror("Failed create a message\n");
-            return 1;
-        }
+        if(create_frameid(rt_addr, TRANSMIT, msg) != 0) { goto end; }
     }
+    
     return 0;
+
+end:
+    perror("Failed create a message\n");
+    return -1;
 }
 
 static int create_frameid(int rt_addr, int dir, Message_t *msg) {
-    int status;
+    int status, wordcount;
     struct FRAME framestruct[2];
-    usint msgdata[34];
+    usint cmdtype, msgdata[34];
     memset(msgdata, 0, sizeof(msgdata));
     
     if(dir == RECEIVE) {
         size_t len = strlen(msg->text);
-        add_text(msg->text, msgdata, len);
-    }
+        if(len >= 64) len = 64;
 
-    int wordcount = (dir == RECEIVE) ? getWordCount(msg->text) : 32;
-    usint cmdtype = (dir == RECEIVE) ? BC2RT : RT2BC;
+        wordcount = (len + 1) / 2;
+        cmdtype = BC2RT;
+
+        add_text(msg->text, msgdata, len);
+    } else {
+        wordcount = 32;
+        cmdtype = RT2BC;
+    }
 
     status = Command_Word_Px(rt_addr, dir, msg->sub_address, wordcount, &msgdata[0]);
     if(status < 0) return handle_error(status, "Command_Word_Px failure");
@@ -274,17 +275,13 @@ static int create_frameid(int rt_addr, int dir, Message_t *msg) {
 }
 
 static void add_text(const char *str, usint *msgdata, size_t len) {
+    if(len > 64) { printf("add_text failure: length of the message > 64\n"); return; }
+
     for (int i = 0; i < len; i += 2) {
         unsigned char c1 = (i < len) ? str[i] : 0;
         unsigned char c2 = (i + 1 < len) ? str[i + 1] : 0;
         msgdata[i / 2 + 1] = (c1 << 8) | c2;
     }
-}
-
-static int getWordCount(const char *msg) {
-    size_t len = strlen(msg);
-    if(len >= 64) len = 64;
-    return (len + 1) / 2;
 }
 
 static int handle_error(int status, const char *msg) {
@@ -294,51 +291,3 @@ static int handle_error(int status, const char *msg) {
     release_module_1553();
     return status;
 }
-
-// static void print_status_1553(usint stat) {
-//     int length = 0;
-//     if((stat & 0x8000) == 0x8000) {
-//         printf("       **  END_OF_MSG  ");
-//         length = 23;
-//     } else {
-//         printf("Invalid status - Message not yet complete\n");
-//         return;
-//     }
-//     if((stat & 0x2000) == 0x2000) {
-//         printf("MSG_ERROR  ");
-//         length += 11;
-//     }
-//     if((stat & 0x0100) == 0x0100) {
-//         printf("ME_SET  ");
-//         length += 8;
-//     }
-//     if((stat & 0x0800) == 0x0800) {
-//         printf("BAD_STATUS  ");
-//         length += 12;
-//     }
-//     if((stat & 0x0400) == 0x0400) {
-//         printf("INVALID_MSG  ");
-//         length += 13;
-//     }
-//     if(length > 60) {
-//         printf("**\n       **  ");
-//         length = 11;
-//     }
-//     if((stat & 0x0200) == 0x0200) {
-//         printf("LATE_RESP  ");
-//         length += 11;
-//     }
-//     if(length > 60) {
-//         printf("**\n       **  ");
-//         length = 11;
-//     }
-//     if((stat & 0x0080) == 0x0080) {
-//         printf("INVALID_WORD  ");
-//         length += 14;
-//     }
-//     if(length > 60) {
-//         printf("**\n       **  ");
-//         length = 11;
-//     }
-//     printf("**\n");
-// }

@@ -21,8 +21,15 @@ typedef struct {
 } MsgHeader1553_t;
 #pragma pack(pop)
 
-extern pthread_t trmt_client_thread;
-extern pthread_t recv_client_thread;
+typedef struct {
+    uint32_t opcode;
+    uint32_t len;
+    const char *dir;
+    const char *text; 
+} PrintMsg_t;
+
+extern pthread_t handle_txclient_thread;
+extern pthread_t handle_rxclient_thread;
 
 void handle_sigint(int sig);
 void close_socket();

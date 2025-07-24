@@ -5,25 +5,7 @@
 
 #include "config.h"
 
-static int parse_int_checked(const char *value, int min, int max, const char *field_name, int *out)
-{
-    char *endptr = NULL;
-    errno = 0;
-
-    long result = strtol(value, &endptr, 0);
-    if(errno != 0 || *endptr != '\0') {
-        fprintf(stderr, "Error: invalid integer for %s: '%s'\n", field_name, value);
-        return 0;
-    }
-
-    if(result < min || result > max) {
-        fprintf(stderr, "Error: %s out of range (%d..%d): %ld\n", field_name, min, max, result);
-        return 0;
-    }
-
-    *out = (int)result;
-    return 1;
-}
+static int parse_int_checked(const char *value, int min, int max, const char *field_name, int *out);
 
 int command_handler(void* user, const char* section, const char* name, const char* value) {
     Config* config = (Config*)user;
@@ -106,5 +88,25 @@ int command_handler(void* user, const char* section, const char* name, const cha
         return 1;
     }
 
+    return 1;
+}
+
+static int parse_int_checked(const char *value, int min, int max, const char *field_name, int *out)
+{
+    char *endptr = NULL;
+    errno = 0;
+
+    long result = strtol(value, &endptr, 0);
+    if(errno != 0 || *endptr != '\0') {
+        fprintf(stderr, "Error: invalid integer for %s: '%s'\n", field_name, value);
+        return 0;
+    }
+
+    if(result < min || result > max) {
+        fprintf(stderr, "Error: %s out of range (%d..%d): %ld\n", field_name, min, max, result);
+        return 0;
+    }
+
+    *out = (int)result;
     return 1;
 }
