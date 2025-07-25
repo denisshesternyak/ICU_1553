@@ -6,6 +6,8 @@ This project implements a three-component communication system using **MIL-STD-1
 - `icu` — bridge between 1553 and the network
 - `irst` — remote command processor and responder
 
+<img width="778" height="238" alt="image" src="https://github.com/user-attachments/assets/081252b0-d9fe-4afa-b50d-6bfec1e8bc62" />
+
 ## Driver
 
 The project communicates with MIL-STD-1553 hardware using a custom Linux kernel driver named `excalbr`. The driver must be compiled, loaded, and properly interfaced before running the application.
