@@ -1,0 +1,8 @@
+#
+#!/bin/sh
+#
+# Remove the module
+/sbin/rmmod excalbr || exit 1
+#
+# Remove the node
+rm -f /dev/excalbr*

@@ -1,0 +1,3 @@
+#!/bin/sh
+KERNELVERSION=`uname -r`
+make -C /lib/modules/$KERNELVERSION/build M=$PWD modules

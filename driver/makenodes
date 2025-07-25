@@ -1,0 +1,22 @@
+mknod /dev/excalbr0 c $majornumber 0
+mknod /dev/excalbr1 c $majornumber 1
+mknod /dev/excalbr2 c $majornumber 2
+mknod /dev/excalbr3 c $majornumber 3
+mknod /dev/excalbr4 c $majornumber 4
+mknod /dev/excalbr5 c $majornumber 5
+mknod /dev/excalbr6 c $majornumber 6
+mknod /dev/excalbr7 c $majornumber 7
+mknod /dev/excalbr8 c $majornumber 8
+mknod /dev/excalbr9 c $majornumber 9
+mknod /dev/excalbr10 c $majornumber 10
+mknod /dev/excalbr11 c $majornumber 11
+mknod /dev/excalbr12 c $majornumber 12
+mknod /dev/excalbr13 c $majornumber 13
+mknod /dev/excalbr14 c $majornumber 14
+mknod /dev/excalbr15 c $majornumber 15
+mknod /dev/excalbr19 c $majornumber 19
+mknod /dev/excalbr20 c $majornumber 20
+mknod /dev/excalbr25 c $majornumber 25
+#
+# Assign permissions
+chmod 666 /dev/excalbr*

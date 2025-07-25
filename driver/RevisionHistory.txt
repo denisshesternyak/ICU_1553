@@ -1,0 +1,53 @@
+Excalibur Kernel Driver for Linux
+
+Version 2.9 - Dec 2024
+	- Change to work with RHEL kernel 5.14 with backport of feature from kernel 6.11
+	- Added printing of kernel driver version in debug output and /proc file
+	- Added support for M8K CPCI card (ID 0x8001)
+
+Version 2.8 - Oct 2024
+	- Support for kernel 6.11
+
+Version 2.7 - Mar 2024
+	-Support for more cards (E423, E427, E810)
+
+Version 2.6 - May 2023
+	-Support for VPX card (E850)
+
+Version 2.5 - Oct 2022
+	-Support for kernel 5.19
+
+Version 2.4 - Dec 2020
+	-Bugfix for modules 4-7 on 8000 card
+	-Support for recent (5.5) Linux kernel
+
+Version 2.3 - May 2020
+ 	-Fixed support for E464 (modular Ethernet card)
+
+Version 2.2 - Apr 2020
+ 	-Added support for E464 (modular Ethernet card) and M8K cards (8 module and new PC104)
+
+Version 2.1 - Apr 2018
+	- now works in kernel 5 (Ubuntu 19)
+	- added fix for cards with PCI address > 4GB and enhanced security for mmap
+
+Version 2.0 - Sep 2015
+	- now works in kernel 3 (RHEL7)
+
+Version 1.9 - June 2014
+	- now works in kernel 3.12 (not RHEL)
+
+Version 1.8 - June 2011
+	- added support for kernels through 2.6.32
+
+Version 1.7 - November 2007
+	- added support for kernels through 2.6.18
+
+Version 1.6 - April 2006
+	- excload: added line for device 19 (PCI/Px)
+
+Version 1.5 - April 2005
+	- adapted for linux kernel 2.6.9
+
+Version 1.4 - Feb 2005
+	
