@@ -1,15 +1,35 @@
-#include <pthread.h>
-
 #include "client.h"
 #include "mil_std_1553.h"
+
+/**
+ * @brief Thread function for handling RT 1553 communication.
+ * 
+ * @param arg Pointer to thread arguments (context or configuration data).
+ * @return void* Thread exit status or result.
+ */
+static void* rt_1553_thread(void* arg);
+
+/**
+ * @brief Adds text to a message data buffer.
+ * 
+ * @param msgdata Pointer to the message data buffer.
+ * @param text Pointer to the text to add.
+ * @param len Length of the text in bytes.
+ */
+static void add_text(usint *msgdata, const char *text, size_t len);
+
+/**
+ * @brief Handles errors by logging or reporting them.
+ * 
+ * @param status Error status code.
+ * @param msg Pointer to the error message string.
+ * @return int Status code indicating error handling result.
+ */
+static int handle_error(int status, const char *msg);
 
 static int handle = -1;
 pthread_t handle_1553_thread;
 static int isThreadRun;
-
-static void* rt_1553_thread(void* arg);
-static void add_text(usint *msgdata, const char *text, size_t len);
-static int handle_error(int status, const char *msg);
 
 int getIsThreadRun() {
     return isThreadRun;

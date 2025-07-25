@@ -5,6 +5,16 @@
 
 #include "config.h"
 
+/**
+ * @brief Parses and validates an integer from a string within a specified range.
+ * 
+ * @param value The string containing the integer to parse.
+ * @param min The minimum allowed value for the integer.
+ * @param max The maximum allowed value for the integer.
+ * @param field_name The name of the field being parsed (used for error messages).
+ * @param out Pointer to store the parsed integer value.
+ * @return int Returns 1 on successful parsing and validation, or 0 on failure (invalid input or out-of-range value).
+ */
 static int parse_int_checked(const char *value, int min, int max, const char *field_name, int *out);
 
 int command_handler(void* user, const char* section, const char* name, const char* value) {

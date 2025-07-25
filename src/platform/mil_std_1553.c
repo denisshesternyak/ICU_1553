@@ -7,18 +7,90 @@
 #include "mil_std_1553.h"
 #include "config.h"
 
+/**
+ * @brief Thread function for handling BC 1553 communication.
+ * 
+ * @param arg Pointer to thread arguments (context or configuration data).
+ * @return void* Thread exit status or result.
+ */
 static void* bc_1553_thread(void* arg);
+
+/**
+ * @brief Sends a message with the specified frame ID.
+ * 
+ * @param frameid The ID of the frame to send.
+ * @return int Status code indicating success (0) or failure (non-zero).
+ */
 static int send_msg(int frameid);
+
+/**
+ * @brief Reads a message with the specified ID.
+ * 
+ * @param id The ID of the message to read.
+ * @return int Status code indicating success (0) or failure (non-zero).
+ */
 static int read_msg(short int id);
+
+/**
+ * @brief Formats a timestamp in microseconds to a string.
+ * 
+ * @param usec Time value in microseconds.
+ * @return const char* Pointer to a string containing the formatted time.
+ */
 static const char *format_time(uint64_t usec);
+
+/**
+ * @brief Gets the current time in microseconds.
+ * 
+ * @return uint64_t Current time in microseconds.
+ */
 static uint64_t get_time_microseconds();
-static void print_msg(const char *dir, const int opcode, const char *text, size_t len);
+
+/**
+ * @brief Prints a message for debugging or logging.
+ * 
+ * @param print Pointer to the PrintMsg_t structure containing message details.
+ */
+static void print_msg(PrintMsg_t *print);
+
+/**
+ * @brief Creates communication frames based on configuration.
+ * 
+ * @param config Pointer to the configuration structure.
+ * @return int Status code indicating success (0) or failure (non-zero).
+ */
 static int create_frames(Config *config);
+
+/**
+ * @brief Creates a frame ID for a message.
+ * 
+ * @param rt_addr Remote terminal address.
+ * @param dir Direction of the message (e.g., send or receive).
+ * @param msg Pointer to the message structure.
+ * @return int The generated frame ID or an error code.
+ */
 static int create_frameid(int rt_addr, int dir, Message_t *msg);
+
+/**
+ * @brief Adds text to a message data buffer.
+ * 
+ * @param str Pointer to the string to add.
+ * @param msgdata Pointer to the message data buffer.
+ * @param len Length of the string to add.
+ */
 static void add_text(const char *str, usint *msgdata, size_t len);
+
+/**
+ * @brief Handles errors by logging or reporting them.
+ * 
+ * @param status Error status code.
+ * @param msg Pointer to the error message string.
+ * @return int Status code indicating how the error was handled.
+ */
 static int handle_error(int status, const char *msg);
 
 static int handle = -1;
+
 pthread_t handle_1553_thread;
 volatile sig_atomic_t stop_flag = 0;
 
@@ -111,7 +183,14 @@ static void* bc_1553_thread(void* arg) {
             
             if(elapsed_ms - last_time >= rate) {
                 send_msg(msg->frame.id);
-                print_msg("T", msg->op_code, msg->text, strlen(msg->text));
+                PrintMsg_t print = { 
+                    .dir = "T", 
+                    .opcode=msg->op_code, 
+                    .text=msg->text, 
+                    .len=strlen(msg->text) 
+                };
+
+                print_msg(&print);
 
                 frame_executed = 1;
                 msg->frame.last_time = elapsed_ms;
@@ -181,7 +260,14 @@ static int read_msg(short int id) {
     data[len] = '\0';
 
     int op_code = (data_buffer[0] & 0x03E0) >> 5;
-    print_msg("R", op_code, data, len);
+    PrintMsg_t print = { 
+        .dir = "R", 
+        .opcode=op_code, 
+        .text=data, 
+        .len=len 
+    };
+
+    print_msg(&print);
     
     return 0;
 }
@@ -206,13 +292,13 @@ static uint64_t get_time_microseconds() {
     return (uint64_t)tv.tv_sec * 1000000 + tv.tv_usec;
 }
 
-static void print_msg(const char *dir, const int opcode, const char *text, size_t len) {
-    printf("%-14s %-4s 0x%-6.2X %-6lu %-s\n",
+static void print_msg(PrintMsg_t *print) {
+        printf("%-14s %-4s 0x%-6.2X %-6u %-s\n",
         format_time(get_time_microseconds()),
-        dir,
-        opcode,
-        len,
-        text);
+        print->dir,
+        print->opcode,
+        print->len,
+        print->text);
 }
 
 static int create_frames(Config *config) {

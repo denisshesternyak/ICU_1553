@@ -21,25 +21,96 @@
 
 #define BUFFER_SIZE 1024
 
+/**
+ * @brief Thread function to receive data from the communication interface.
+ * 
+ * @param arg Pointer to thread arguments (context or configuration data).
+ * @return void* Thread exit status.
+ */
+static void *receive_data(void *arg);
+
+/**
+ * @brief Thread function to transmit data over the communication interface.
+ * 
+ * @param arg Pointer to thread arguments (context or configuration data).
+ * @return void* Thread exit status.
+ */
+static void *transmit_data(void *arg);
+
+/**
+ * @brief Parses data from a buffer.
+ * 
+ * @param buffer Pointer to the buffer containing data to parse.
+ */
+static void parse_buffer(const char *buffer);
+
+/**
+ * @brief Packs data into a 1553 message header.
+ * 
+ * @param hdr Pointer to the message header structure.
+ * @param opcode Operation code for the message.
+ * @param msg Pointer to the message content.
+ * @param len Length of the message content in bytes.
+ */
+static void data_packing(MsgHeader1553_t *hdr, int opcode, const char *msg, size_t len);
+
+/**
+ * @brief Creates a 1553 message header.
+ * 
+ * @param subaddr Subaddress for the message.
+ * @param text Pointer to the message content.
+ * @param len Length of the message content in bytes.
+ * @param hdr Pointer to the message header structure.
+ */
+static void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr);
+
+/**
+ * @brief Sends data over the communication interface.
+ * 
+ * @param msg Pointer to the message to send.
+ * @param len Length of the message in bytes.
+ * @return int Status code: 0 for success, non-zero for failure.
+ */
+static int send_data(const char *msg, size_t len);
+
+/**
+ * @brief Retrieves the current system time in microseconds.
+ * 
+ * @return uint64_t Current time in microseconds.
+ */
+static uint64_t get_time_microseconds();
+
+/**
+ * @brief Formats a microsecond timestamp into a string.
+ * 
+ * @param usec Time value in microseconds.
+ * @return const char* Pointer to the formatted time string.
+ */
+static const char *format_time(uint64_t usec);
+
+/**
+ * @brief Prints message details for logging or debugging.
+ * 
+ * @param print Pointer to the PrintMsg_t structure with message details.
+ */
+static void print_msg(PrintMsg_t *print);
+
+/**
+ * @brief Calculates the CRC32 checksum for a data block.
+ * 
+ * @param data Pointer to the data to checksum.
+ * @param length Length of the data in bytes.
+ * @return uint32_t The computed CRC32 value.
+ */
+static uint32_t crc32(const void *data, size_t length);
+
+static int sockfd = -1;
+
 pthread_t handle_txclient_thread;
 pthread_t handle_rxclient_thread;
 struct sockaddr_in client_addr;
 socklen_t addr_len;
 char client_ip[INET_ADDRSTRLEN];
-
-static void *receive_data(void *arg);
-static void *transmit_data(void *arg);
-static void parse_buffer(const char *buffer);
-static void data_packing(MsgHeader1553_t *hdr, int opcode, const char *msg, size_t len);
-static void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr);
-static int send_data(const char *msg, size_t len);
-static uint64_t get_time_microseconds();
-static const char *format_time(uint64_t usec);
-static void print_msg(PrintMsg_t *print);
-static uint32_t crc32(const void *data, size_t length);
-
-static int sockfd = -1;
-
 volatile sig_atomic_t stop_flag;
 
 void handle_sigint(int sig) {
