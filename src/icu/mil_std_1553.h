@@ -34,6 +34,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "galahad_px.h"
 #include "config.h"
@@ -66,11 +67,11 @@ int release_module_1553();
  * @brief Loads a data block with specified text and length.
  * 
  * @param blknum Data block number.
- * @param text Pointer to the text to load.
+ * @param data Pointer to the text to load.
  * @param len Length of the text in bytes.
  * @return int Status code: 0 for success, non-zero for failure.
  */
-int load_datablk(int blknum, const char *text, size_t len);
+int load_datablk(int blknum, uint8_t *data, size_t len);
 
 /**
  * @brief Checks if a thread is running.

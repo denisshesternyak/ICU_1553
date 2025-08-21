@@ -4,3 +4,5 @@ file(GLOB SOURCES
 
 add_executable(platform ${SOURCES})
 target_link_libraries(platform ${LIBS})
+
+copy_config(platform)

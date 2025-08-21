@@ -51,7 +51,7 @@ typedef struct {
     uint32_t len;
     const char *from;
     const char *to;
-    const char *text; 
+    uint8_t *data; 
 } PrintMsg_t;
 
 extern volatile sig_atomic_t stop_flag;
@@ -82,9 +82,9 @@ int init_socket(Config *config);
  * @brief Processes received data from the communication interface.
  * 
  * @param subaddr Subaddress of the received message.
- * @param text Pointer to the received message content.
+ * @param data Pointer to the received message content.
  * @param len Length of the message content in bytes.
  */
-void handle_received_data(uint32_t subaddr, const char *text, uint32_t len);
+void handle_received_data(uint32_t subaddr, uint8_t *data, uint32_t len);
 
 #endif //CLIENT_H

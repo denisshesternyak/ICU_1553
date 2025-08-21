@@ -49,10 +49,10 @@ static const char *format_time(uint64_t usec);
  * 
  * @param hdr Pointer to the message header structure.
  * @param opcode Operation code for the message.
- * @param msg Pointer to the message content.
+ * @param data Pointer to the message content.
  * @param len Length of the message content.
  */
-static void data_packing(MsgHeader1553_t *hdr, int opcode, const char *msg, size_t len);
+static void data_packing(MsgHeader1553_t *hdr, int opcode, uint8_t *data, size_t len);
 
 /**
  * @brief Sends data over the communication interface.
@@ -61,7 +61,7 @@ static void data_packing(MsgHeader1553_t *hdr, int opcode, const char *msg, size
  * @param len Length of the data in bytes.
  * @return ssize_t Number of bytes sent, or -1 on error.
  */
-static ssize_t send_data(const char *message, size_t len);
+static ssize_t send_data(const uint8_t *message, size_t len);
 
 /**
  * @brief Thread function to receive data from the communication interface.
@@ -84,7 +84,7 @@ static void *transmit_data(void* arg);
  * 
  * @param buffer Pointer to the buffer containing data to parse.
  */
-static void parse_buffer(const char *buffer);
+static void parse_buffer(uint8_t *buffer);
 
 /**
  * @brief Prints message details for logging or debugging.
@@ -97,11 +97,11 @@ static void print_msg(PrintMsg_t *print);
  * @brief Creates a 1553 message header.
  * 
  * @param subaddr Subaddress for the message.
- * @param text Pointer to the message content.
+ * @param data Pointer to the message content.
  * @param len Length of the message content.
  * @param hdr Pointer to the message header structure.
  */
-static void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr);
+static void create_header(uint32_t subaddr, const uint8_t *data, uint32_t len, MsgHeader1553_t *hdr);
 
 static int sockfd = -1;
 
@@ -170,13 +170,13 @@ int init_socket(Config *config) {
     return 0;
 }
 
-void handle_received_data(uint32_t subaddr, const char *text, uint32_t len) {
+void handle_received_data(uint32_t subaddr, uint8_t *data, uint32_t len) {
     static uint32_t msg_seq_counter = 1;
 
     header.msg_opcode = subaddr;
     header.msg_length = len + HEADER_SIZE;
     header.msg_seq_number = msg_seq_counter++;
-    header.payload_crc32 = crc32(text, len);
+    header.payload_crc32 = crc32(data, len);
     header.send_time = 0;
     header.receive_time = get_time_microseconds();
 
@@ -184,18 +184,18 @@ void handle_received_data(uint32_t subaddr, const char *text, uint32_t len) {
         .from = "PLATFORM", 
         .to="IRST", 
         .opcode=header.msg_opcode, 
-        .text=text, 
+        .data=data, 
         .len=len 
     };
 
     print_msg(&print);
 
-    char message[BUFFER_SIZE];
+    uint8_t message[BUFFER_SIZE];
     memset(message, 0, BUFFER_SIZE);
 
     header.send_time = get_time_microseconds();
     memcpy(message, &header, HEADER_SIZE);
-    memcpy(message+HEADER_SIZE, text, len);
+    memcpy(message+HEADER_SIZE, data, len);
 
     if(send_data(message, header.msg_length) < 0) {
         perror("Failed to send the message");
@@ -238,27 +238,27 @@ static const char *format_time(uint64_t usec) {
     return buf;
 }
 
-static void data_packing(MsgHeader1553_t *hdr, int opcode, const char *msg, size_t len) {
-    char message[BUFFER_SIZE];
+static void data_packing(MsgHeader1553_t *hdr, int opcode, uint8_t *data, size_t len) {
+    uint8_t message[BUFFER_SIZE];
     memset(message, 0, BUFFER_SIZE);
 
-    create_header(opcode, msg, len, hdr);
+    create_header(opcode, data, len, hdr);
     memcpy(message, hdr, HEADER_SIZE);
-    memcpy(message+HEADER_SIZE, msg, len);
+    memcpy(message+HEADER_SIZE, data, len);
 
     if(send_data(message, hdr->msg_length) >= 0) {
         PrintMsg_t print = { 
             .from = "ICU", 
             .to="IRST", 
             .opcode=opcode, 
-            .text=msg, 
+            .data=data, 
             .len=len 
         };
         print_msg(&print);
     }
 }
 
-static ssize_t send_data(const char *message, size_t len) {
+static ssize_t send_data(const uint8_t *message, size_t len) {
     return sendto(sockfd, message, len, 0, 
                          (struct sockaddr *)&server_addr, sizeof(server_addr));
 }
@@ -266,7 +266,7 @@ static ssize_t send_data(const char *message, size_t len) {
 static void *receive_data(void *arg) {
     //Config *config = (Config*)arg;
 
-    char buffer[BUFFER_SIZE];
+    uint8_t buffer[BUFFER_SIZE];
     struct sockaddr_in from_addr;
     socklen_t addr_len = sizeof(from_addr);
     
@@ -321,7 +321,7 @@ static void* transmit_data(void* arg) {
             
             if(elapsed_ms - last_time >= rate) {
                 MsgHeader1553_t header;
-                data_packing(&header, msg->op_code, msg->text, strlen(msg->text));
+                data_packing(&header, msg->op_code, (uint8_t *)msg->text, strlen(msg->text));
                 msg->last_time = elapsed_ms;
                 frame_executed = 1;
             }
@@ -337,17 +337,17 @@ static void* transmit_data(void* arg) {
     pthread_exit(NULL);
 }
 
-static void parse_buffer(const char *buffer) {
+static void parse_buffer(uint8_t *buffer) {
     MsgHeader1553_t header;
     memcpy(&header, buffer, sizeof(MsgHeader1553_t));
-    const char *msg = buffer+HEADER_SIZE;
+    uint8_t *data = buffer+HEADER_SIZE;
     size_t len = header.msg_length-HEADER_SIZE;
 
-    if(crc32(msg, len) == header.payload_crc32) {
+    if(crc32(data, len) == header.payload_crc32) {
         PrintMsg_t print = { 
             .from = "IRST", 
             .opcode=header.msg_opcode, 
-            .text=msg, 
+            .data=data,  
             .len=len 
         };
 
@@ -356,7 +356,7 @@ static void parse_buffer(const char *buffer) {
             print_msg(&print);
         } else {
             if(!getIsThreadRun()) return;
-            load_datablk(header.msg_opcode, msg, len);
+            load_datablk(header.msg_opcode, data, len);
             print.to = "PLATFORM";
             print_msg(&print);
         }
@@ -364,21 +364,25 @@ static void parse_buffer(const char *buffer) {
 }
 
 static void print_msg(PrintMsg_t *print) {
-    printf("%-14s %-10s %-10s 0x%-6.2X %-6u %-s\n",
+    printf("%-14s %-10s %-10s 0x%-6.2X %-6u",
         format_time(get_time_microseconds()),
         print->from,
         print->to,
         print->opcode,
-        print->len,
-        print->text);
+        print->len);
+
+    for (uint32_t i = 0; i < print->len; i++) {
+        printf("%02X ", print->data[i]);
+    }
+    printf("\n");
 }
 
-static void create_header(uint32_t subaddr, const char *text, uint32_t len, MsgHeader1553_t *hdr) {
+static void create_header(uint32_t subaddr, const uint8_t *data, uint32_t len, MsgHeader1553_t *hdr) {
     static uint32_t msg_seq_counter = 1;
     hdr->msg_opcode = subaddr;
     hdr->msg_length = len + HEADER_SIZE;
     hdr->msg_seq_number = msg_seq_counter++;
-    hdr->payload_crc32 = crc32(text, len);
+    hdr->payload_crc32 = crc32(data, len);
     hdr->send_time = 0;
     hdr->receive_time = get_time_microseconds();
     hdr->send_time = get_time_microseconds();

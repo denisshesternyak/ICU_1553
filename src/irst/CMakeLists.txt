@@ -4,3 +4,5 @@ file(GLOB SOURCES
 
 add_executable(irst ${SOURCES})
 target_link_libraries(irst ${LIBS})
+
+copy_config(irst)

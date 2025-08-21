@@ -13,10 +13,10 @@ static void* rt_1553_thread(void* arg);
  * @brief Adds text to a message data buffer.
  * 
  * @param msgdata Pointer to the message data buffer.
- * @param text Pointer to the text to add.
+ * @param data Pointer to the text to add.
  * @param len Length of the text in bytes.
  */
-static void add_text(usint *msgdata, const char *text, size_t len);
+static void add_text(usint *msgdata, uint8_t *data, size_t len);
 
 /**
  * @brief Handles errors by logging or reporting them.
@@ -87,12 +87,12 @@ int init_module_1553(Config *config) {
     return 0;
 }
 
-int load_datablk(int blknum, const char *text, size_t len) {
+int load_datablk(int blknum, uint8_t *data, size_t len) {
     int status;
     usint msgdata[32];
     memset(msgdata, 0, sizeof(msgdata));
 
-    add_text(msgdata, text, len);
+    add_text(msgdata, data, len);
 
     status = Load_Datablk_Px(handle, blknum, msgdata);
     if(status < 0) { return handle_error(status, "Load_Datablk_Px failure");}
@@ -154,7 +154,7 @@ static void* rt_1553_thread(void* arg) {
                 continue;
             }
 
-            char received_text[64] = {0};
+            uint8_t received_text[64] = {0};
             uint32_t len = 0;
 
             for (int j = 0; j < wordCount && len < 64; j++) {
@@ -175,12 +175,12 @@ static void* rt_1553_thread(void* arg) {
     pthread_exit(NULL);
 }
 
-static void add_text(usint *msgdata, const char *text, size_t len) {
+static void add_text(usint *msgdata, uint8_t *data, size_t len) {
     if(len > 64) { printf("add_text failure: length of the message > 64\n"); return; }
 
     for (int i = 0; i < len; i += 2) {
-        unsigned char c1 = (i < len) ? text[i] : 0;
-        unsigned char c2 = (i + 1 < len) ? text[i + 1] : 0;
+        unsigned char c1 = (i < len) ? data[i] : 0;
+        unsigned char c2 = (i + 1 < len) ? data[i + 1] : 0;
         msgdata[i / 2] = (c1 << 8) | c2;
     }
 }
