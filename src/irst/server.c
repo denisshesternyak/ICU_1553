@@ -240,7 +240,7 @@ static void parse_buffer(const char *buffer) {
     const char *msg = buffer+HEADER_SIZE;
     size_t len = header.msg_length-HEADER_SIZE;
 
-    if(crc32(msg, len) == header.payload_crc32) {
+    //if(crc32(msg, len) == header.payload_crc32) {
         PrintMsg_t print = { 
             .dir = "R", 
             .opcode=header.msg_opcode, 
@@ -253,7 +253,7 @@ static void parse_buffer(const char *buffer) {
         if(header.msg_opcode == ICU_STATUS_OPCODE) {
             data_packing(&header, ICU_STATUS_ACK_OPCODE, ICU_STATUS_ACK_MSG, strlen(ICU_STATUS_ACK_MSG));
         }
-    } 
+    //} 
 }
 
 static void data_packing(MsgHeader1553_t *hdr, int opcode, const char *msg, size_t len) {

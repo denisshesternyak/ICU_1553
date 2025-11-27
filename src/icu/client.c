@@ -14,9 +14,11 @@
 
 #include "client.h"
 #include "mil_std_1553.h"
+#include "logger.h"
 
 #define HEADER_SIZE 44
 #define BUFFER_SIZE 1024
+#define BUFFER_SIZE_MAX_LEN BUFFER_SIZE-100
 
 #define ICU_STATUS_ACK_OPCODE 0x11
 
@@ -110,6 +112,7 @@ static MsgHeader1553_t header;
 pthread_t handle_rxclient_thread;
 pthread_t handle_txclient_thread;
 volatile sig_atomic_t stop_flag = 0;
+static char message_buffer[BUFFER_SIZE];
 
 void handle_sigint(int sig) {
     stop_flag = 1;
@@ -343,7 +346,7 @@ static void parse_buffer(uint8_t *buffer) {
     uint8_t *data = buffer+HEADER_SIZE;
     size_t len = header.msg_length-HEADER_SIZE;
 
-    if(crc32(data, len) == header.payload_crc32) {
+    //if(crc32(data, len) == header.payload_crc32) {
         PrintMsg_t print = { 
             .from = "IRST", 
             .opcode=header.msg_opcode, 
@@ -360,21 +363,28 @@ static void parse_buffer(uint8_t *buffer) {
             print.to = "PLATFORM";
             print_msg(&print);
         }
-    }    
+    //}    
+}
+
+static void create_msg(PrintMsg_t *print) {
+    int pos = 0;
+    pos += snprintf(message_buffer, BUFFER_SIZE, 
+                   "%-14s %-10s %-10s 0x%-6.2X %-6u",
+                   format_time(get_time_microseconds()),
+                   print->from,
+                   print->to,
+                   print->opcode,
+                   print->len);
+    
+    for (uint32_t i = 0; i < print->len && pos < BUFFER_SIZE_MAX_LEN; i++) {
+        pos += snprintf(message_buffer + pos, BUFFER_SIZE - pos, "%02X ", print->data[i]);
+    }
 }
 
 static void print_msg(PrintMsg_t *print) {
-    printf("%-14s %-10s %-10s 0x%-6.2X %-6u",
-        format_time(get_time_microseconds()),
-        print->from,
-        print->to,
-        print->opcode,
-        print->len);
-
-    for (uint32_t i = 0; i < print->len; i++) {
-        printf("%02X ", print->data[i]);
-    }
-    printf("\n");
+    create_msg(print);
+    printf("%s\n", message_buffer);
+    add_log(message_buffer);
 }
 
 static void create_header(uint32_t subaddr, const uint8_t *data, uint32_t len, MsgHeader1553_t *hdr) {

@@ -1,5 +1,6 @@
 file(GLOB SOURCES
     "*.c"
+    "logger.c"
 )
 
 add_executable(icu ${SOURCES})

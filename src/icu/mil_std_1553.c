@@ -139,10 +139,16 @@ static void* rt_1553_thread(void* arg) {
     while (!stop_flag) {
         if(Read_RT_Status_Px(handle) > 0) {
             status = Get_Next_RT_Message_Px(handle, &rtcmd);
-            if(status < 0) continue;
+            if(status < 0) {
+                printf("Failed to read the next available entry from the message stack. The message status %d, CMDENTRYRT status %d, the command word %d\n", status, rtcmd.status, rtcmd.command);
+                continue;
+            }
             
             Parse_CommandWord_Px(rtcmd.command, &rt, &subaddr, &direction, &wordCount, &rt_id);
-            if(direction == TRANSMIT) continue;
+            if(direction == TRANSMIT) {
+                //printf("The message will be ignored. SubAddr: %d, Direction: %s, WordCount: %d, RT_id: %d\n", subaddr, "TRANSMIT", wordCount, rt_id);
+                continue;
+            }
             if(wordCount == 0) wordCount = 32; // 0 indicates a word count of 32.
 
             blknum = Get_Blknum_Px(handle, rt_id);
@@ -154,20 +160,23 @@ static void* rt_1553_thread(void* arg) {
                 continue;
             }
 
-            uint8_t received_text[64] = {0};
-            uint32_t len = 0;
+            uint8_t received_data[64] = {0};
+            uint32_t data_len = 0;
 
-            for (int j = 0; j < wordCount && len < 64; j++) {
+            for (int j = 0; j < wordCount && data_len < 64; j++) {
                 usint word = msgdata[j];
-                uint8_t byte;
-                if((byte = (word >> 8) & 0xFF) == 0) break;
-                received_text[len++] = byte;
-                if((byte = word & 0xFF) == 0) break;
-                received_text[len++] = byte;
+                
+                if (data_len < 64) {
+                    received_data[data_len++] = (word >> 8) & 0xFF;
+                }
+                
+                if (data_len < 64) {
+                    received_data[data_len++] = word & 0xFF;
+                }
             }
 
-            if(len > 0) {
-                handle_received_data(subaddr, received_text, len);
+            if(data_len > 0) {                
+                handle_received_data(subaddr, received_data, data_len);
             }
         }
     }
