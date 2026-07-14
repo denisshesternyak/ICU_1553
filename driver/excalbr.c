@@ -1503,12 +1503,12 @@ static inline unsigned long makemask_pgprot_noncached(unsigned long prot) {
 }
 #endif
 
-static inline int range_is_allowed(unsigned long pfn, unsigned long size, EXCDEVICE* pdx)
+static inline int exc_range_is_allowed(unsigned long pfn, unsigned long size, EXCDEVICE* pdx)
 {
     u64 from = ((u64)pfn) << PAGE_SHIFT;
     u64 to = from + size;
     u64 cursor = from;
-    DebugMessage("Exc: " "range_is_allowed: Program %s trying to access memory between %Lx->%Lx.\n", current->comm, from, to);
+    DebugMessage("Exc: " "exc_range_is_allowed: Program %s trying to access memory between %Lx->%Lx.\n", current->comm, from, to);
 
     while (cursor < to) {
 	BOOL foundpage = FALSE;
@@ -1540,7 +1540,7 @@ int ExcMmap(struct file *file, struct vm_area_struct *vma) {
         unsigned long offset = vma->vm_offset;
 #else
         unsigned long offset = vma->vm_pgoff<<PAGE_SHIFT;
-	if (!range_is_allowed(vma->vm_pgoff, size, pdx))
+	if (!exc_range_is_allowed(vma->vm_pgoff, size, pdx))
 		return -EPERM;
 #endif
     

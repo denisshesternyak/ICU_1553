@@ -27,8 +27,6 @@ static void add_text(usint *msgdata, uint8_t *data, size_t len);
  */
 static int handle_error(int status, const char *msg);
 
-#define BROADCAST_RT_ADDR  31
-
 static int handle = -1;
 pthread_t handle_1553_thread;
 static int isThreadRun;
@@ -118,8 +116,6 @@ static void* rt_1553_thread(void* arg) {
     if(status < 0) { handle_error(status, "Set_RT_Active failure");}
     
     // === Broadcast support ===
-    status = Set_RT_Active_Px(handle, BROADCAST_RT_ADDR, 0);
-    if(status < 0) { handle_error(status, "Broadcast RT 31 failure");}
 	  Set_RT_Broadcast_Px(handle, ENABLE);
 
     int rtid;
