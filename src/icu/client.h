@@ -49,6 +49,7 @@ typedef struct {
 typedef struct {
     uint32_t opcode;
     uint32_t len;
+    char channel;
     const char *from;
     const char *to;
     uint8_t *data; 
@@ -85,6 +86,6 @@ int init_socket(Config *config);
  * @param data Pointer to the received message content.
  * @param len Length of the message content in bytes.
  */
-void handle_received_data(uint32_t subaddr, uint8_t *data, uint32_t len);
+void handle_received_data(uint32_t subaddr, char ch, uint8_t *data, uint32_t len);
 
 #endif //CLIENT_H

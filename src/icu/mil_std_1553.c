@@ -147,6 +147,8 @@ static void* rt_1553_thread(void* arg) {
                 continue;
             }
             
+            char channel = (rtcmd.status & 0x4000) > 0 ? 'A' : 'B';
+            
             Parse_CommandWord_Px(rtcmd.command, &rt, &subaddr, &direction, &wordCount, &rt_id);
             if(direction == TRANSMIT) {
                 //printf("The message will be ignored. SubAddr: %d, Direction: %s, WordCount: %d, RT_id: %d\n", subaddr, "TRANSMIT", wordCount, rt_id);
@@ -179,7 +181,7 @@ static void* rt_1553_thread(void* arg) {
             }
 
             if(data_len > 0) {                
-                handle_received_data(subaddr, received_data, data_len);
+                handle_received_data(subaddr, channel, received_data, data_len);
             }
         }
     }

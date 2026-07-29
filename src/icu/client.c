@@ -173,7 +173,7 @@ int init_socket(Config *config) {
     return 0;
 }
 
-void handle_received_data(uint32_t subaddr, uint8_t *data, uint32_t len) {
+void handle_received_data(uint32_t subaddr, char ch, uint8_t *data, uint32_t len) {
     static uint32_t msg_seq_counter = 1;
 
     header.msg_opcode = subaddr;
@@ -188,7 +188,8 @@ void handle_received_data(uint32_t subaddr, uint8_t *data, uint32_t len) {
         .to="IRST", 
         .opcode=header.msg_opcode, 
         .data=data, 
-        .len=len 
+        .len=len,
+        .channel=ch
     };
 
     print_msg(&print);
@@ -255,7 +256,8 @@ static void data_packing(MsgHeader1553_t *hdr, int opcode, uint8_t *data, size_t
             .to="IRST", 
             .opcode=opcode, 
             .data=data, 
-            .len=len 
+            .len=len,
+            .channel='-'
         };
         print_msg(&print);
     }
@@ -308,7 +310,7 @@ static void* transmit_data(void* arg) {
     clock_gettime(CLOCK_MONOTONIC, &start_time);
 
     printf("  Running the transmit SOCKET thread...\n");
-    printf("\n%-14s %-10s %-10s %-8s %-6s %-s\n", "Time", "From", "To", "OpCode", "Len", "Message");
+    printf("\n%-14s %-6s %-10s %-10s %-8s %-6s %-s\n", "Time", "Ch", "From", "To", "OpCode", "Len", "Message");
 
     while (!stop_flag) {
         struct timespec current_time;
@@ -351,7 +353,8 @@ static void parse_buffer(uint8_t *buffer) {
             .from = "IRST", 
             .opcode=header.msg_opcode, 
             .data=data,  
-            .len=len 
+            .len=len,
+            .channel='-'
         };
 
         if(header.msg_opcode == ICU_STATUS_ACK_OPCODE) {
@@ -369,8 +372,9 @@ static void parse_buffer(uint8_t *buffer) {
 static void create_msg(PrintMsg_t *print) {
     int pos = 0;
     pos += snprintf(message_buffer, BUFFER_SIZE, 
-                   "%-14s %-10s %-10s 0x%-6.2X %-6u",
+                   "%-14s %-6c %-10s %-10s 0x%-6.2X %-6u",
                    format_time(get_time_microseconds()),
+                   print->channel,
                    print->from,
                    print->to,
                    print->opcode,
