@@ -19,6 +19,15 @@ static int parse_int_checked(const char *value, int min, int max, const char *fi
 
 int command_handler(void* user, const char* section, const char* name, const char* value) {
     Config* config = (Config*)user;
+    
+    if(strcmp(section, "logging") == 0) {
+        if(strcmp(name, "Debug_Display") == 0) {
+            config->debug_display = atoi(value);
+        } else if(strcmp(name, "Debug_Log") == 0) {
+            config->debug_log = atoi(value);
+        }
+        return 1;
+    }
 
     if(strcmp(section, "device") == 0) {
         if(strcmp(name, "Device_Number") == 0) {

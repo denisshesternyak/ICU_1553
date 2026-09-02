@@ -106,6 +106,7 @@ static void print_msg(PrintMsg_t *print);
 static void create_header(uint32_t subaddr, const uint8_t *data, uint32_t len, MsgHeader1553_t *hdr);
 
 static int sockfd = -1;
+static Config *g_config;
 
 static struct sockaddr_in server_addr;
 static MsgHeader1553_t header;
@@ -129,6 +130,7 @@ void close_socket() {
 }
 
 int init_socket(Config *config) {
+    g_config = config;
     header.sync_word = config->device.sync_word;
 
     if((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
@@ -169,6 +171,8 @@ int init_socket(Config *config) {
         close(sockfd);
         return -1;
     }
+    
+    add_log("Socket initialized successfully.");
 
     return 0;
 }
@@ -310,7 +314,13 @@ static void* transmit_data(void* arg) {
     clock_gettime(CLOCK_MONOTONIC, &start_time);
 
     printf("  Running the transmit SOCKET thread...\n");
-    printf("\n%-14s %-6s %-10s %-10s %-8s %-6s %-s\n", "Time", "Ch", "From", "To", "OpCode", "Len", "Message");
+    
+    char msg[128];
+    snprintf(msg, sizeof(msg), "%-14s %-6s %-10s %-10s %-8s %-5s %-s", "Time", "Ch", "From", "To", "OpCode", "Len", "Message");
+    if (g_config->debug_display) {
+        printf("\n%s\n", msg);
+    }
+    add_log(msg);
 
     while (!stop_flag) {
         struct timespec current_time;
@@ -387,7 +397,10 @@ static void create_msg(PrintMsg_t *print) {
 
 static void print_msg(PrintMsg_t *print) {
     create_msg(print);
-    printf("%s\n", message_buffer);
+    if (g_config->debug_display) {
+        printf("%s\n", message_buffer);
+    }
+
     add_log(message_buffer);
 }
 

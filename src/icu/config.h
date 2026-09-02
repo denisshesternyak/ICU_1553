@@ -22,6 +22,8 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include <stdbool.h>
+
 typedef struct {
     int device_number;
     int module_number;
@@ -55,6 +57,8 @@ typedef struct {
 } CommandList_t;
 
 typedef struct {
+    bool debug_display;
+    bool debug_log;
     Device_t device;
     Network_t network;
     CommandList_t cmds;

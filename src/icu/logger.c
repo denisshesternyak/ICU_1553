@@ -6,8 +6,12 @@
 static FILE* log_file = NULL;
 static char log_filename[LOG_FILENAME_MAX_LEN] = DEFAULT_LOG_FILENAME;
 static char time_buf[TIME_BUFFER_SIZE];
+static bool is_allowed;
 
-int init_logger(const char* filename) {
+int init_logger(const char* filename, bool value) {
+    is_allowed = value;
+    if(!is_allowed) return 0;
+
     if (filename != NULL) {
         strncpy(log_filename, filename, sizeof(filename) - 1);
         log_filename[sizeof(filename) - 1] = '\0';
@@ -29,7 +33,7 @@ int init_logger(const char* filename) {
 }
 
 void add_log(const char* message) {
-    if (log_file == NULL || message == NULL) {
+    if (log_file == NULL || message == NULL || !is_allowed) {
         return;
     }
     
@@ -41,7 +45,7 @@ void add_log(const char* message) {
 }
 
 void close_logger() {
-    if (log_file == NULL) {
+    if (log_file == NULL || !is_allowed) {
         return;
     }
     

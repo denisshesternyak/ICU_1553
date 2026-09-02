@@ -12,19 +12,26 @@
 #define CONFIG_FILE "config.ini"
 #define LOG_FILE "icu.log"
 
+#define FW_VERSION "v_1_1_0"
+
 int main(int argc, char **argv) {
     Config config;
     memset(&config, 0, sizeof(config));
-
-    if (init_logger(LOG_FILE) != 0) {
-        printf("Error: Cannot initialize %s\n", LOG_FILE);
-        return 1;
-    }
 
     if(ini_parse(CONFIG_FILE, command_handler, &config) < 0) {
         printf("Error: Cannot load %s\n", CONFIG_FILE);
         return 1;
     }
+    
+    if (init_logger(LOG_FILE, config.debug_log) != 0) {
+        printf("Error: Cannot initialize %s\n", LOG_FILE);
+        return 1;
+    }
+    
+    char msg[64];
+    snprintf(msg, sizeof(msg), "FW_VERSION: %s", FW_VERSION);
+    printf("%s\n", msg);
+    add_log(msg);
 
     add_log("Config parsed successfully.");
 
@@ -38,7 +45,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Failed initialization socket\n");
         return 1;
     }
-    add_log("Socket initialized successfully.");
 
     signal(SIGINT, handle_sigint);
 

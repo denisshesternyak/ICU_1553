@@ -2,12 +2,13 @@
 #define LOGGER_H
 
 #include <stdio.h>
+#include <stdbool.h>
 
 #define LOG_FILENAME_MAX_LEN 256 
 #define DEFAULT_LOG_FILENAME "default.log"
 #define TIME_BUFFER_SIZE 64
 
-int init_logger(const char* filename);
+int init_logger(const char* filename, bool value);
 
 void add_log(const char* message);
 
