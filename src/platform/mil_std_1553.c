@@ -212,7 +212,7 @@ static void* bc_1553_thread(void* arg) {
         }
 
         if(!frame_executed) {
-            usleep(1000);
+            usleep(500);
             continue;
         }
         frame_executed = 0;        
@@ -344,12 +344,13 @@ static int create_frameid(int rt_addr, int dir, Message_t *msg) {
 
     status = Command_Word_Px(rt_addr, dir, msg->sub_address, wordcount, &msgdata[0]);
     if(status < 0) return handle_error(status, "Command_Word_Px failure");
+    
 
     status = Create_1553_Message_Px(handle, cmdtype, msgdata, &msg->handle);
     if(status < 0) return handle_error(status, "Create_1553_Message failure");
 
     framestruct[0].id = msg->handle;
-    framestruct[0].gaptime = 5000;
+    framestruct[0].gaptime = 200;
     framestruct[1].id = 0;
 
     int frame_id = Create_Frame_Px(handle, &framestruct[0]);
@@ -366,7 +367,7 @@ static void add_text(const char *str, usint *msgdata, size_t len) {
     for (int i = 0; i < len; i += 2) {
         unsigned char c1 = (i < len) ? str[i] : 0;
         unsigned char c2 = (i + 1 < len) ? str[i + 1] : 0;
-        msgdata[i / 2 + 1] = (c1 << 8) | c2;
+        msgdata[i / 2] = (c1 << 8) | c2;
     }
 }
 

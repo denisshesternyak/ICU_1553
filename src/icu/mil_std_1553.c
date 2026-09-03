@@ -1,5 +1,15 @@
 #include "client.h"
 #include "mil_std_1553.h"
+#include "logger.h"
+
+#define BUS_A              0x4000
+#define RT_BAD_CHECKSUM    0x2000
+#define TX_TIME_OUT        0x0400
+#define INVALID_WORD       0x0080
+#define BAD_WD_CNT         0x0020
+#define BAD_SYNC           0x0008
+#define BAD_GAP            0x0004
+#define MSG_ERROR          0x0001
 
 /**
  * @brief Thread function for handling RT 1553 communication.
@@ -27,9 +37,14 @@ static void add_text(usint *msgdata, uint8_t *data, size_t len);
  */
 static int handle_error(int status, const char *msg);
 
+static bool rt_has_error(uint16_t status);
+
+static void log_rt_error(const struct CMDENTRYRT *rtcmd);
+
 static int handle = -1;
 pthread_t handle_1553_thread;
 static int isThreadRun;
+static Config *g_config;
 
 int getIsThreadRun() {
     return isThreadRun;
@@ -47,6 +62,7 @@ int release_module_1553() {
 }
 
 int init_module_1553(Config *config) {
+    g_config = config;
     usint device = (usint)config->device.device_number;
     usint module = (usint)config->device.module_number;
     int status;
@@ -80,7 +96,7 @@ int init_module_1553(Config *config) {
 
     if(pthread_create(&handle_1553_thread, NULL, rt_1553_thread, config) != 0) {
         perror("Failed to create receive 1553 thread");
-        release_module_1553(handle);
+        release_module_1553();
         return -1;
     }
 
@@ -104,41 +120,54 @@ static void* rt_1553_thread(void* arg) {
     Config *config = (Config*)arg;
 
     int rt_addr = config->device.rt_addr;
-    char errstr[255];
     int status, blknum;
     usint rt, subaddr, direction, wordCount, rt_id;
     usint msgdata[32] = {0};
     
     status = Set_Mode_Px(handle, RT_MODE);
-    if(status < 0) { handle_error(status, "Set_Mode failure"); }
+    if(status < 0) { 
+      handle_error(status, "Set_Mode failure");
+      Release_Module_Px(handle);
+      handle = -1;
+      return NULL;
+    }    
 
     status = Set_RT_Active_Px(handle, rt_addr, 0);
-    if(status < 0) { handle_error(status, "Set_RT_Active failure");}
+    if(status < 0) { 
+      handle_error(status, "Set_RT_Active failure");
+      Release_Module_Px(handle);
+      handle = -1;
+      return NULL;
+    }
     
     // === Broadcast support ===
 	  Set_RT_Broadcast_Px(handle, ENABLE);
 
     int rtid;
     CommandList_t *cmd = &config->cmds;
+    for (size_t i = 0; i < 32; ++i) {
+        RT_Id_Px(rt_addr, RECEIVE, i, &rtid);
+        Assign_RT_Data_Px(handle, rtid, i);
+    }
+
     for (size_t i = 0; i < cmd->count_rx; ++i) {
         Message_t *msg = &cmd->messages_rx[i];
-        for (size_t i = 0; i < 32; ++i) {
-            if(i == msg->op_code) {
-                RT_Id_Px(rt_addr, TRANSMIT, msg->op_code, &rtid);
-            } else {
-                RT_Id_Px(rt_addr, RECEIVE, i, &rtid);
-            }
-            Assign_RT_Data_Px(handle, rtid, i);
-        }
+        RT_Id_Px(rt_addr, TRANSMIT, msg->op_code, &rtid);
+        Assign_RT_Data_Px(handle, rtid,  msg->op_code);
     }
 
     status = Run_RT_Px(handle);
-    if(status < 0) { handle_error(status, "Run_RT failure"); }    
+    if(status < 0) { 
+      handle_error(status, "Run_RT failure");
+      Release_Module_Px(handle);
+      handle = -1;
+      return NULL;
+    }    
 
     isThreadRun = 1;
     printf("  Running the receive MODULE_1553 thread...\n");
 
-    struct CMDENTRYRT rtcmd;
+    struct CMDENTRYRT rtcmd = {0};
     while (!stop_flag) {
         if(Read_RT_Status_Px(handle) > 0) {
             status = Get_Next_RT_Message_Px(handle, &rtcmd);
@@ -147,7 +176,12 @@ static void* rt_1553_thread(void* arg) {
                 continue;
             }
             
-            char channel = (rtcmd.status & 0x4000) > 0 ? 'A' : 'B';
+            char channel = (rtcmd.status & BUS_A) > 0 ? 'A' : 'B';
+            
+            if (rt_has_error(rtcmd.status)) {
+                log_rt_error(&rtcmd);
+                continue;
+            }
             
             Parse_CommandWord_Px(rtcmd.command, &rt, &subaddr, &direction, &wordCount, &rt_id);
             if(direction == TRANSMIT) {
@@ -160,9 +194,12 @@ static void* rt_1553_thread(void* arg) {
 
             status = Read_Datablk_Px(handle, blknum, msgdata);
             if(status < 0) {
-                Get_Error_String_Px(status, errstr);
-                printf("Failed to read data block %d: %s\n", blknum, errstr);
-                continue;
+                char msg[64];
+                snprintf(msg, sizeof(msg),"Failed to read data block %d\n", blknum);
+                handle_error(status, msg);
+                Release_Module_Px(handle);
+                handle = -1;
+                return NULL;
             }
 
             uint8_t received_data[64] = {0};
@@ -203,6 +240,64 @@ static int handle_error(int status, const char *msg) {
     char errstr[255];
     Get_Error_String_Px(status, errstr);
     printf("%s: %s\n", msg, errstr);
-    Release_Module_Px(handle);
+    add_log(msg);
     return status;
+}
+
+static bool rt_has_error(uint16_t status)
+{
+    return (status & (
+        RT_BAD_CHECKSUM |
+        TX_TIME_OUT |
+        INVALID_WORD |
+        BAD_WD_CNT |
+        BAD_SYNC |
+        BAD_GAP |
+        MSG_ERROR
+    )) != 0;
+}
+
+static void log_rt_error(const struct CMDENTRYRT *rtcmd)
+{
+    char msg[256];
+    int len = 0;
+
+    uint16_t s = rtcmd->status;
+
+    len += snprintf(msg + len, sizeof(msg) - len,
+                    "[ERROR] status=0x%04X command=0x%04X bus=%c",
+                    s, rtcmd->command, (s & BUS_A) ? 'A' : 'B');
+
+    if (s & RT_BAD_CHECKSUM) {
+        len += snprintf(msg + len, sizeof(msg) - len, " RT_BAD_CHECKSUM");
+    }
+
+    if (s & TX_TIME_OUT) {
+        len += snprintf(msg + len, sizeof(msg) - len, " TX_TIME_OUT");
+    }
+
+    if (s & INVALID_WORD) {
+        len += snprintf(msg + len, sizeof(msg) - len, " INVALID_WORD");
+    }
+
+    if (s & BAD_WD_CNT) {
+        len += snprintf(msg + len, sizeof(msg) - len, " BAD_WD_CNT");
+    }
+
+    if (s & BAD_SYNC) {
+        len += snprintf(msg + len, sizeof(msg) - len, " BAD_SYNC");
+    }
+
+    if (s & BAD_GAP) {
+        len += snprintf(msg + len, sizeof(msg) - len, " BAD_GAP");
+    }
+
+    if (s & MSG_ERROR) {
+        len += snprintf(msg + len, sizeof(msg) - len, " MSG_ERROR");
+    }
+
+    if (g_config->debug_display) {
+      printf("%s\n", msg);
+    }
+    add_log(msg);
 }
