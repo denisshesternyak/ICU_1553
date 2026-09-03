@@ -81,6 +81,18 @@ build/src/
 
 All system settings are defined in the config.ini file. This file is parsed at startup to configure devices, network interfaces, and message behavior.
 
+### [logging]
+```ini
+[logging]
+Debug_Display=1
+Debug_Log=1
+```
+
+| Key             | Description                                                                 |
+| --------------- | --------------------------------------------------------------------------- |
+| `Debug_Display` | Enables (1) or disables (0) printing of sent and received messages to the terminal |
+| `Debug_Log`     | Enables (1) or disables (0) writing of messages to the log file             |
+
 ### [device]
 ```ini
 [device]
