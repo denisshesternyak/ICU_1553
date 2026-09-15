@@ -140,6 +140,8 @@ static void* rt_1553_thread(void* arg) {
       return NULL;
     }
     
+    Set_RT_Active_Bus_Px(handle, rt_addr, 0);
+    
     // === Broadcast support ===
 	  Set_RT_Broadcast_Px(handle, ENABLE);
 
@@ -163,6 +165,9 @@ static void* rt_1553_thread(void* arg) {
       handle = -1;
       return NULL;
     }    
+    
+    // [A/B]
+    channel_buf_t buf[2];
 
     isThreadRun = 1;
     printf("  Running the receive MODULE_1553 thread...\n");
@@ -177,7 +182,8 @@ static void* rt_1553_thread(void* arg) {
             }
             
             char channel = (rtcmd.status & BUS_A) > 0 ? 'A' : 'B';
-            
+            int ch_idx = (rtcmd.status & BUS_A) ? 0 : 1;
+
             if (rt_has_error(rtcmd.status)) {
                 log_rt_error(&rtcmd);
                 continue;
@@ -202,23 +208,24 @@ static void* rt_1553_thread(void* arg) {
                 return NULL;
             }
 
-            uint8_t received_data[64] = {0};
             uint32_t data_len = 0;
+            channel_buf_t *buf_ch = &buf[ch_idx];
 
             for (int j = 0; j < wordCount && data_len < 64; j++) {
                 usint word = msgdata[j];
                 
                 if (data_len < 64) {
-                    received_data[data_len++] = (word >> 8) & 0xFF;
+                    buf_ch->data[data_len++] = (word >> 8) & 0xFF;
                 }
                 
                 if (data_len < 64) {
-                    received_data[data_len++] = word & 0xFF;
+                    buf_ch->data[data_len++] = word & 0xFF;
                 }
+                buf_ch->len = data_len;
             }
 
-            if(data_len > 0) {                
-                handle_received_data(subaddr, channel, received_data, data_len);
+            if(buf_ch->len > 0) {                
+                handle_received_data(subaddr, channel, buf_ch->data, buf_ch->len);
             }
         }
     }
