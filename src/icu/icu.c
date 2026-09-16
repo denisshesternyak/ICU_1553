@@ -12,7 +12,7 @@
 #define CONFIG_FILE "config.ini"
 #define LOG_FILE "icu.log"
 
-#define FW_VERSION "v_1_2_0"
+#define FW_VERSION "v_1_4_0"
 
 int main(int argc, char **argv) {
     Config config;

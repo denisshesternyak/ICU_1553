@@ -39,11 +39,6 @@
 #include "galahad_px.h"
 #include "config.h"
 
-typedef struct {
-    uint8_t data[64];
-    uint32_t len;
-} channel_buf_t;
-
 extern pthread_t handle_1553_thread;
 
 /**

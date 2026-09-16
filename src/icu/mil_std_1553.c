@@ -11,6 +11,9 @@
 #define BAD_GAP            0x0004
 #define MSG_ERROR          0x0001
 
+#define BROADCAST_RT          31
+#define BROADCAST_BLOCK_BASE  40
+
 /**
  * @brief Thread function for handling RT 1553 communication.
  * 
@@ -142,8 +145,6 @@ static void* rt_1553_thread(void* arg) {
     
     Set_RT_Active_Bus_Px(handle, rt_addr, 0);
     
-    // === Broadcast support ===
-	  Set_RT_Broadcast_Px(handle, ENABLE);
 
     int rtid;
     CommandList_t *cmd = &config->cmds;
@@ -157,6 +158,14 @@ static void* rt_1553_thread(void* arg) {
         RT_Id_Px(rt_addr, TRANSMIT, msg->op_code, &rtid);
         Assign_RT_Data_Px(handle, rtid,  msg->op_code);
     }
+    
+    // === Broadcast support ===
+	  Set_RT_Broadcast_Px(handle, ENABLE);
+    
+    for (size_t i = 0; i < 32; i++) {
+        RT_Id_Px(BROADCAST_RT, RECEIVE, i, &rtid);
+        Assign_RT_Data_Px(handle, rtid, BROADCAST_BLOCK_BASE + i);
+    }
 
     status = Run_RT_Px(handle);
     if(status < 0) { 
@@ -166,9 +175,6 @@ static void* rt_1553_thread(void* arg) {
       return NULL;
     }    
     
-    // [A/B]
-    channel_buf_t buf[2];
-
     isThreadRun = 1;
     printf("  Running the receive MODULE_1553 thread...\n");
 
@@ -182,7 +188,6 @@ static void* rt_1553_thread(void* arg) {
             }
             
             char channel = (rtcmd.status & BUS_A) > 0 ? 'A' : 'B';
-            int ch_idx = (rtcmd.status & BUS_A) ? 0 : 1;
 
             if (rt_has_error(rtcmd.status)) {
                 log_rt_error(&rtcmd);
@@ -208,24 +213,21 @@ static void* rt_1553_thread(void* arg) {
                 return NULL;
             }
 
+            uint8_t received_data[64] = {0};
             uint32_t data_len = 0;
-            channel_buf_t *buf_ch = &buf[ch_idx];
 
             for (int j = 0; j < wordCount && data_len < 64; j++) {
                 usint word = msgdata[j];
-                
+
+                received_data[data_len++] = (word >> 8) & 0xFF;
+
                 if (data_len < 64) {
-                    buf_ch->data[data_len++] = (word >> 8) & 0xFF;
+                    received_data[data_len++] = word & 0xFF;
                 }
-                
-                if (data_len < 64) {
-                    buf_ch->data[data_len++] = word & 0xFF;
-                }
-                buf_ch->len = data_len;
             }
 
-            if(buf_ch->len > 0) {                
-                handle_received_data(subaddr, channel, buf_ch->data, buf_ch->len);
+            if(data_len > 0) {                
+                handle_received_data(subaddr, channel, received_data, data_len);
             }
         }
     }
